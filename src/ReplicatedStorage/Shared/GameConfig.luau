@@ -108,6 +108,16 @@ GameConfig.Enemies = {
 			Size = Vector3.new(12, 14, 10),
 			XPValue = 200,
 		},
+		MegaBoss = {
+			Health = 8000,
+			Speed = 5,
+			Damage = 60,
+			AttackRange = 10,
+			AttackCooldown = 1.2,
+			Color = Color3.fromRGB(255, 200, 0),
+			Size = Vector3.new(16, 18, 14),
+			XPValue = 500,
+		},
 	},
 
 	-- Time-based introduction (seconds of game time)

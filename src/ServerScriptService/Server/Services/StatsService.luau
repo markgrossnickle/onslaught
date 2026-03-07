@@ -3,10 +3,16 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
+local Signal = require(ReplicatedStorage.Packages.Signal)
+local RelicData = require(ReplicatedStorage.Shared.RelicData)
 
 local StatsService = Knit.CreateService({
 	Name = "StatsService",
-	Client = {},
+	Client = {
+		SoulsEarned = Knit.CreateSignal(), -- (soulsEarned: number, totalSouls: number)
+		WeaponUnlocked = Knit.CreateSignal(), -- (weaponName: string)
+	},
+	WeaponUnlocked = Signal.new(), -- (player, weaponId)
 })
 
 local GameService: any
@@ -55,6 +61,21 @@ function StatsService:UpdateLeaderboard(player: Player)
 	end
 end
 
+function StatsService:CalculateSouls(player: Player, wave: number, kills: number, survivalTime: number): number
+	local baseSouls = (wave * 10) + math.floor(kills * 0.5) + math.floor(survivalTime / 60) * 5
+
+	-- Bonus for new personal best wave
+	local currentBest = PlayerDataService:Read(player, { "HighestWave" }) or 0
+	if wave > currentBest then
+		baseSouls += 50
+	end
+
+	-- Soul Harvest relic bonus
+	local soulHarvestTier = PlayerDataService:Read(player, { "RelicLevels", "SoulHarvest" }) or 0
+	local soulMult = 1.0 + soulHarvestTier * 0.15
+	return math.floor(baseSouls * soulMult)
+end
+
 function StatsService:SaveEndOfGame(player: Player)
 	local stats = GameService:GetPlayerStats(player)
 	if not stats then
@@ -62,6 +83,9 @@ function StatsService:SaveEndOfGame(player: Player)
 	end
 
 	local wave = GameService:GetCurrentWave()
+	local survivalTime = GameService:GetGameElapsed()
+
+	-- Update lifetime stats
 	local currentBest = PlayerDataService:Read(player, { "HighestWave" }) or 0
 	if wave > currentBest then
 		PlayerDataService:Write(player, { "HighestWave" }, wave)
@@ -76,6 +100,133 @@ function StatsService:SaveEndOfGame(player: Player)
 
 	local gamesPlayed = PlayerDataService:Read(player, { "TotalGamesPlayed" }) or 0
 	PlayerDataService:Write(player, { "TotalGamesPlayed" }, gamesPlayed + 1)
+
+	local totalRuns = PlayerDataService:Read(player, { "TotalRuns" }) or 0
+	PlayerDataService:Write(player, { "TotalRuns" }, totalRuns + 1)
+
+	local bestTime = PlayerDataService:Read(player, { "BestSurvivalTime" }) or 0
+	if survivalTime > bestTime then
+		PlayerDataService:Write(player, { "BestSurvivalTime" }, math.floor(survivalTime))
+	end
+
+	-- Calculate and award Souls
+	local soulsEarned = self:CalculateSouls(player, wave, stats.Kills, survivalTime)
+	local currentSouls = PlayerDataService:Read(player, { "Souls" }) or 0
+	local newTotal = currentSouls + soulsEarned
+	PlayerDataService:Write(player, { "Souls" }, newTotal)
+
+	self.Client.SoulsEarned:Fire(player, soulsEarned, newTotal)
+
+	-- Check weapon unlock conditions
+	self:_checkWeaponUnlocks(player, totalKills + stats.Kills, wave, survivalTime)
+end
+
+function StatsService:_checkWeaponUnlocks(player: Player, lifetimeKills: number, bestWave: number, runTime: number)
+	local unlocked = PlayerDataService:Read(player, { "UnlockedWeapons" }) or {}
+
+	-- Projectile: reach wave 5
+	if not unlocked["Projectile"] and bestWave >= 5 then
+		PlayerDataService:Write(player, { "UnlockedWeapons", "Projectile" }, true)
+		self.Client.WeaponUnlocked:Fire(player, "Projectile")
+		self.WeaponUnlocked:Fire(player, "Projectile")
+	end
+
+	-- Lightning: 200 total kills
+	if not unlocked["Lightning"] and lifetimeKills >= 200 then
+		PlayerDataService:Write(player, { "UnlockedWeapons", "Lightning" }, true)
+		self.Client.WeaponUnlocked:Fire(player, "Lightning")
+		self.WeaponUnlocked:Fire(player, "Lightning")
+	end
+
+	-- Aura: survive 5 minutes (300s) in a single run
+	if not unlocked["Aura"] and runTime >= 300 then
+		PlayerDataService:Write(player, { "UnlockedWeapons", "Aura" }, true)
+		self.Client.WeaponUnlocked:Fire(player, "Aura")
+		self.WeaponUnlocked:Fire(player, "Aura")
+	end
+end
+
+function StatsService:GetPlayerSouls(player: Player): number
+	return PlayerDataService:Read(player, { "Souls" }) or 0
+end
+
+function StatsService:GetUnlockedWeapons(player: Player): { [string]: boolean }
+	return PlayerDataService:Read(player, { "UnlockedWeapons" }) or { Orbiter = true }
+end
+
+function StatsService:GetRelicLevels(player: Player): { [string]: number }
+	return PlayerDataService:Read(player, { "RelicLevels" }) or {}
+end
+
+function StatsService:PurchaseRelic(player: Player, relicId: string): (boolean, string?)
+	local relic = RelicData.GetRelic(relicId)
+	if not relic then
+		return false, "Unknown relic"
+	end
+
+	local currentTier = PlayerDataService:Read(player, { "RelicLevels", relicId }) or 0
+	local cost = RelicData.GetUpgradeCost(relicId, currentTier)
+	if not cost then
+		return false, "Already max tier"
+	end
+
+	local souls = PlayerDataService:Read(player, { "Souls" }) or 0
+	if souls < cost then
+		return false, "Not enough Souls"
+	end
+
+	PlayerDataService:Write(player, { "Souls" }, souls - cost)
+	PlayerDataService:Write(player, { "RelicLevels", relicId }, currentTier + 1)
+	return true, nil
+end
+
+function StatsService:SetSelectedCharacter(player: Player, characterId: string)
+	PlayerDataService:Write(player, { "SelectedCharacter" }, characterId)
+end
+
+function StatsService:GetSelectedCharacter(player: Player): string
+	return PlayerDataService:Read(player, { "SelectedCharacter" }) or "Survivor"
+end
+
+function StatsService:GetLifetimeStats(player: Player): { [string]: any }
+	return {
+		TotalKills = PlayerDataService:Read(player, { "TotalKills" }) or 0,
+		BestWave = PlayerDataService:Read(player, { "HighestWave" }) or 0,
+		BestSurvivalTime = PlayerDataService:Read(player, { "BestSurvivalTime" }) or 0,
+		TotalRuns = PlayerDataService:Read(player, { "TotalRuns" }) or 0,
+	}
+end
+
+-------------------------------------------------
+-- CLIENT API
+-------------------------------------------------
+
+function StatsService.Client:GetSouls(player: Player): number
+	return self.Server:GetPlayerSouls(player)
+end
+
+function StatsService.Client:GetUnlockedWeapons(player: Player): { [string]: boolean }
+	return self.Server:GetUnlockedWeapons(player)
+end
+
+function StatsService.Client:GetRelicLevels(player: Player): { [string]: number }
+	return self.Server:GetRelicLevels(player)
+end
+
+function StatsService.Client:PurchaseRelic(player: Player, relicId: string): (boolean, string?)
+	return self.Server:PurchaseRelic(player, relicId)
+end
+
+function StatsService.Client:SelectCharacter(player: Player, characterId: string)
+	self.Server:SetSelectedCharacter(player, characterId)
+end
+
+function StatsService.Client:GetSelectedCharacter(player: Player): string
+	return self.Server:GetSelectedCharacter(player)
+end
+
+function StatsService.Client:GetLifetimeStats(player: Player): { [string]: any }
+	return self.Server:GetLifetimeStats(player)
 end
 
 function StatsService:KnitInit()

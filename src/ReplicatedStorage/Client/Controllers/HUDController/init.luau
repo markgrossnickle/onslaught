@@ -5,6 +5,8 @@ local RunService = game:GetService("RunService")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local RelicData = require(ReplicatedStorage.Shared.RelicData)
+local CharacterData = require(ReplicatedStorage.Shared.CharacterData)
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -26,6 +28,8 @@ local _cardFrame: Frame = nil :: any
 local _timerText: TextLabel = nil :: any
 local _weaponListFrame: Frame = nil :: any
 local _gameOverFrame: Frame = nil :: any
+local _soulsText: TextLabel = nil :: any
+local _lobbyFrame: Frame = nil :: any
 
 local function createLabel(parent: Instance, props: { [string]: any }): TextLabel
 	local label = Instance.new("TextLabel")
@@ -39,6 +43,24 @@ local function createLabel(parent: Instance, props: { [string]: any }): TextLabe
 	end
 	label.Parent = parent
 	return label
+end
+
+local function createButton(parent: Instance, props: { [string]: any }): TextButton
+	local btn = Instance.new("TextButton")
+	btn.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 16
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = true
+	for k, v in props do
+		(btn :: any)[k] = v
+	end
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = btn
+	btn.Parent = parent
+	return btn
 end
 
 local function formatTime(seconds: number): string
@@ -174,6 +196,17 @@ function HUDController:_buildUI()
 		TextSize = 20,
 	})
 
+	-- Souls (top right, below kills)
+	_soulsText = createLabel(_screenGui, {
+		Name = "SoulsText",
+		Size = UDim2.new(0, 200, 0, 24),
+		Position = UDim2.new(1, -220, 0, 50),
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Text = "Souls: 0",
+		TextSize = 16,
+		TextColor3 = Color3.fromRGB(200, 160, 255),
+	})
+
 	-- Weapon list (left side)
 	self:_buildWeaponList()
 
@@ -182,6 +215,9 @@ function HUDController:_buildUI()
 
 	-- Game over screen (hidden by default)
 	self:_buildGameOverFrame()
+
+	-- Lobby frame (hidden by default)
+	self:_buildLobbyFrame()
 end
 
 -------------------------------------------------
@@ -208,14 +244,13 @@ function HUDController:_updateWeaponList(stats: any)
 		return
 	end
 
-	-- Clear old weapon entries
 	for _, child in _weaponListFrame:GetChildren() do
 		if child:IsA("Frame") then
 			child:Destroy()
 		end
 	end
 
-	local weapons = { "Orbiter" } -- Always have orbiter
+	local weapons = { "Orbiter" }
 	local upgrades = stats.Upgrades or {}
 
 	if upgrades["NewProjectile"] then
@@ -248,7 +283,6 @@ function HUDController:_updateWeaponList(stats: any)
 		corner.CornerRadius = UDim.new(0, 4)
 		corner.Parent = entry
 
-		-- Color dot
 		local dot = Instance.new("Frame")
 		dot.Size = UDim2.new(0, 12, 0, 12)
 		dot.Position = UDim2.new(0, 6, 0.5, -6)
@@ -301,7 +335,6 @@ function HUDController:_buildCardFrame()
 end
 
 function HUDController:ShowUpgradeCards(cards: { { Id: string, Name: string, Description: string } })
-	-- Clear old cards
 	for _, child in _cardFrame:GetChildren() do
 		if child:IsA("TextButton") then
 			child:Destroy()
@@ -337,7 +370,6 @@ function HUDController:ShowUpgradeCards(cards: { { Id: string, Name: string, Des
 		stroke.Thickness = 2
 		stroke.Parent = btn
 
-		-- Card name
 		local nameLabel = Instance.new("TextLabel")
 		nameLabel.Size = UDim2.new(1, -16, 0, 40)
 		nameLabel.Position = UDim2.new(0, 8, 0, 20)
@@ -350,7 +382,6 @@ function HUDController:ShowUpgradeCards(cards: { { Id: string, Name: string, Des
 		nameLabel.ZIndex = 53
 		nameLabel.Parent = btn
 
-		-- Card description
 		local descLabel = Instance.new("TextLabel")
 		descLabel.Size = UDim2.new(1, -16, 0, 80)
 		descLabel.Position = UDim2.new(0, 8, 0, 80)
@@ -371,7 +402,6 @@ function HUDController:ShowUpgradeCards(cards: { { Id: string, Name: string, Des
 			end)
 		end)
 
-		-- Hover effect
 		btn.MouseEnter:Connect(function()
 			btn.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
 			stroke.Color = Color3.fromRGB(180, 180, 255)
@@ -401,7 +431,7 @@ function HUDController:_buildGameOverFrame()
 	createLabel(_gameOverFrame, {
 		Name = "GameOverTitle",
 		Size = UDim2.new(1, 0, 0, 60),
-		Position = UDim2.new(0, 0, 0.2, 0),
+		Position = UDim2.new(0, 0, 0.15, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "GAME OVER",
 		TextSize = 48,
@@ -413,7 +443,7 @@ function HUDController:_buildGameOverFrame()
 	createLabel(_gameOverFrame, {
 		Name = "SurvivalTime",
 		Size = UDim2.new(1, 0, 0, 30),
-		Position = UDim2.new(0, 0, 0.35, 0),
+		Position = UDim2.new(0, 0, 0.3, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "Survival Time: 0:00",
 		TextSize = 22,
@@ -423,7 +453,7 @@ function HUDController:_buildGameOverFrame()
 	createLabel(_gameOverFrame, {
 		Name = "KillsStat",
 		Size = UDim2.new(1, 0, 0, 30),
-		Position = UDim2.new(0, 0, 0.4, 0),
+		Position = UDim2.new(0, 0, 0.35, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "Kills: 0",
 		TextSize = 22,
@@ -433,7 +463,7 @@ function HUDController:_buildGameOverFrame()
 	createLabel(_gameOverFrame, {
 		Name = "LevelStat",
 		Size = UDim2.new(1, 0, 0, 30),
-		Position = UDim2.new(0, 0, 0.45, 0),
+		Position = UDim2.new(0, 0, 0.4, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "Level: 1",
 		TextSize = 22,
@@ -443,10 +473,22 @@ function HUDController:_buildGameOverFrame()
 	createLabel(_gameOverFrame, {
 		Name = "WaveStat",
 		Size = UDim2.new(1, 0, 0, 30),
-		Position = UDim2.new(0, 0, 0.5, 0),
+		Position = UDim2.new(0, 0, 0.45, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "Wave: 1",
 		TextSize = 22,
+		ZIndex = 61,
+	})
+
+	createLabel(_gameOverFrame, {
+		Name = "SoulsEarned",
+		Size = UDim2.new(1, 0, 0, 30),
+		Position = UDim2.new(0, 0, 0.52, 0),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "",
+		TextSize = 24,
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = Color3.fromRGB(200, 160, 255),
 		ZIndex = 61,
 	})
 
@@ -456,7 +498,7 @@ function HUDController:_buildGameOverFrame()
 	playAgainBtn.Position = UDim2.new(0.5, -100, 0.6, 0)
 	playAgainBtn.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
 	playAgainBtn.BorderSizePixel = 0
-	playAgainBtn.Text = "Play Again"
+	playAgainBtn.Text = "Continue"
 	playAgainBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	playAgainBtn.Font = Enum.Font.GothamBlack
 	playAgainBtn.TextSize = 24
@@ -484,6 +526,17 @@ function HUDController:ShowGameOver(data: any)
 
 	_gameOverFrame.Visible = true
 
+	local title = _gameOverFrame:FindFirstChild("GameOverTitle") :: TextLabel?
+	if title then
+		if data.Victory then
+			title.Text = "VICTORY!"
+			title.TextColor3 = Color3.fromRGB(255, 220, 50)
+		else
+			title.Text = "GAME OVER"
+			title.TextColor3 = Color3.fromRGB(220, 40, 40)
+		end
+	end
+
 	local survTime = _gameOverFrame:FindFirstChild("SurvivalTime") :: TextLabel?
 	if survTime then
 		survTime.Text = `Survival Time: {formatTime(data.SurvivalTime)}`
@@ -506,6 +559,412 @@ function HUDController:ShowGameOver(data: any)
 end
 
 -------------------------------------------------
+-- LOBBY FRAME (Relic Shop + Character Select + Ready Up)
+-------------------------------------------------
+
+function HUDController:_buildLobbyFrame()
+	_lobbyFrame = Instance.new("Frame")
+	_lobbyFrame.Name = "LobbyFrame"
+	_lobbyFrame.Size = UDim2.new(1, 0, 1, 0)
+	_lobbyFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	_lobbyFrame.BackgroundTransparency = 0.4
+	_lobbyFrame.BorderSizePixel = 0
+	_lobbyFrame.Visible = false
+	_lobbyFrame.ZIndex = 70
+	_lobbyFrame.Parent = _screenGui
+
+	createLabel(_lobbyFrame, {
+		Name = "LobbyTitle",
+		Size = UDim2.new(1, 0, 0, 50),
+		Position = UDim2.new(0, 0, 0.02, 0),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "PREPARE FOR NEXT RUN",
+		TextSize = 32,
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = Color3.fromRGB(200, 160, 255),
+		ZIndex = 71,
+	})
+end
+
+function HUDController:_showLobby()
+	if not _lobbyFrame then
+		return
+	end
+
+	-- Clear old content (keep title)
+	for _, child in _lobbyFrame:GetChildren() do
+		if child:IsA("ScrollingFrame") or child:IsA("Frame") or child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
+
+	_lobbyFrame.Visible = true
+
+	local StatsService = Knit.GetService("StatsService")
+
+	-- Fetch player data
+	task.spawn(function()
+		local ok1, souls = StatsService:GetSouls():await()
+		local ok2, relicLevels = StatsService:GetRelicLevels():await()
+		local ok3, selectedChar = StatsService:GetSelectedCharacter():await()
+		local ok4, unlockedWeapons = StatsService:GetUnlockedWeapons():await()
+		local ok5, lifetimeStats = StatsService:GetLifetimeStats():await()
+
+		if not (ok1 and ok2 and ok3 and ok4 and ok5) then
+			warn("Failed to load lobby data")
+			return
+		end
+
+		-- Souls display
+		local soulsLabel = createLabel(_lobbyFrame, {
+			Name = "LobbySouls",
+			Size = UDim2.new(1, 0, 0, 30),
+			Position = UDim2.new(0, 0, 0.07, 0),
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Text = `Souls: {souls}`,
+			TextSize = 22,
+			TextColor3 = Color3.fromRGB(200, 160, 255),
+			ZIndex = 71,
+		})
+
+		-- RELIC SHOP (left panel)
+		self:_buildRelicShop(relicLevels, souls, soulsLabel)
+
+		-- CHARACTER SELECT (center panel)
+		self:_buildCharacterSelect(selectedChar, unlockedWeapons)
+
+		-- STATS PANEL (right panel)
+		self:_buildStatsPanel(lifetimeStats, unlockedWeapons)
+
+		-- READY UP button (bottom center)
+		local readyBtn = createButton(_lobbyFrame, {
+			Name = "ReadyBtn",
+			Size = UDim2.new(0, 220, 0, 50),
+			Position = UDim2.new(0.5, -110, 0.9, 0),
+			BackgroundColor3 = Color3.fromRGB(50, 200, 50),
+			Text = "READY UP",
+			Font = Enum.Font.GothamBlack,
+			TextSize = 24,
+			ZIndex = 72,
+		})
+
+		readyBtn.MouseButton1Click:Connect(function()
+			readyBtn.Text = "READY!"
+			readyBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+			local GameService = Knit.GetService("GameService")
+			GameService:ReadyUp():catch(function(err)
+				warn("ReadyUp failed:", err)
+			end)
+		end)
+	end)
+end
+
+function HUDController:_buildRelicShop(relicLevels: { [string]: number }, souls: number, _soulsLabel: TextLabel)
+	local shopFrame = Instance.new("ScrollingFrame")
+	shopFrame.Name = "RelicShop"
+	shopFrame.Size = UDim2.new(0.3, -20, 0.7, 0)
+	shopFrame.Position = UDim2.new(0, 20, 0.12, 0)
+	shopFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+	shopFrame.BackgroundTransparency = 0.3
+	shopFrame.BorderSizePixel = 0
+	shopFrame.ScrollBarThickness = 4
+	shopFrame.CanvasSize = UDim2.new(0, 0, 0, #RelicData.Relics * 75 + 40)
+	shopFrame.ZIndex = 71
+	shopFrame.Parent = _lobbyFrame
+
+	local shopCorner = Instance.new("UICorner")
+	shopCorner.CornerRadius = UDim.new(0, 8)
+	shopCorner.Parent = shopFrame
+
+	createLabel(shopFrame, {
+		Name = "ShopTitle",
+		Size = UDim2.new(1, 0, 0, 30),
+		Position = UDim2.new(0, 10, 0, 5),
+		Text = "Relic Shop",
+		TextSize = 20,
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = Color3.fromRGB(200, 160, 255),
+		ZIndex = 72,
+	})
+
+	local currentSouls = souls
+	for i, relic in RelicData.Relics do
+		local tier = relicLevels[relic.Id] or 0
+		local cost = RelicData.GetUpgradeCost(relic.Id, tier)
+		local isMaxed = tier >= relic.MaxTier
+		local yPos = 35 + (i - 1) * 75
+
+		local entry = Instance.new("Frame")
+		entry.Name = relic.Id
+		entry.Size = UDim2.new(1, -20, 0, 65)
+		entry.Position = UDim2.new(0, 10, 0, yPos)
+		entry.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+		entry.BorderSizePixel = 0
+		entry.ZIndex = 72
+		entry.Parent = shopFrame
+
+		local entryCorner = Instance.new("UICorner")
+		entryCorner.CornerRadius = UDim.new(0, 6)
+		entryCorner.Parent = entry
+
+		createLabel(entry, {
+			Size = UDim2.new(0.6, 0, 0, 20),
+			Position = UDim2.new(0, 8, 0, 4),
+			Text = `{relic.Name} ({tier}/{relic.MaxTier})`,
+			TextSize = 14,
+			Font = Enum.Font.GothamBlack,
+			ZIndex = 73,
+		})
+
+		createLabel(entry, {
+			Size = UDim2.new(0.9, 0, 0, 16),
+			Position = UDim2.new(0, 8, 0, 24),
+			Text = relic.Description,
+			TextSize = 11,
+			TextColor3 = Color3.fromRGB(160, 160, 180),
+			ZIndex = 73,
+		})
+
+		if not isMaxed and cost then
+			local buyBtn = createButton(entry, {
+				Size = UDim2.new(0, 80, 0, 24),
+				Position = UDim2.new(1, -90, 0, 36),
+				Text = `{cost} Souls`,
+				TextSize = 12,
+				BackgroundColor3 = if currentSouls >= cost
+					then Color3.fromRGB(80, 60, 160)
+					else Color3.fromRGB(60, 60, 60),
+				ZIndex = 74,
+			})
+
+			buyBtn.MouseButton1Click:Connect(function()
+				local StatsService = Knit.GetService("StatsService")
+				local okPurchase, result = StatsService:PurchaseRelic(relic.Id):await()
+				if okPurchase and result then
+					-- Refresh lobby
+					self:_showLobby()
+				end
+			end)
+		else
+			createLabel(entry, {
+				Size = UDim2.new(0, 80, 0, 24),
+				Position = UDim2.new(1, -90, 0, 36),
+				Text = "MAXED",
+				TextSize = 12,
+				TextColor3 = Color3.fromRGB(100, 200, 100),
+				ZIndex = 73,
+			})
+		end
+	end
+end
+
+function HUDController:_buildCharacterSelect(selectedChar: string, _unlockedWeapons: { [string]: boolean })
+	local charFrame = Instance.new("Frame")
+	charFrame.Name = "CharacterSelect"
+	charFrame.Size = UDim2.new(0.35, -20, 0.5, 0)
+	charFrame.Position = UDim2.new(0.3, 10, 0.12, 0)
+	charFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+	charFrame.BackgroundTransparency = 0.3
+	charFrame.BorderSizePixel = 0
+	charFrame.ZIndex = 71
+	charFrame.Parent = _lobbyFrame
+
+	local charCorner = Instance.new("UICorner")
+	charCorner.CornerRadius = UDim.new(0, 8)
+	charCorner.Parent = charFrame
+
+	createLabel(charFrame, {
+		Name = "CharTitle",
+		Size = UDim2.new(1, 0, 0, 30),
+		Position = UDim2.new(0, 10, 0, 5),
+		Text = "Character Select",
+		TextSize = 20,
+		Font = Enum.Font.GothamBlack,
+		ZIndex = 72,
+	})
+
+	local cardWidth = 120
+	local gap = 10
+	local chars = CharacterData.Characters
+	local totalWidth = #chars * cardWidth + (#chars - 1) * gap
+	local startX = (charFrame.AbsoluteSize.X - totalWidth) / 2
+	if startX < 10 then
+		startX = 10
+	end
+
+	for i, charDef in chars do
+		local isSelected = charDef.Id == selectedChar
+		local xPos = startX + (i - 1) * (cardWidth + gap)
+
+		local card = Instance.new("TextButton")
+		card.Name = charDef.Id
+		card.Size = UDim2.new(0, cardWidth, 0, 160)
+		card.Position = UDim2.new(0, xPos, 0, 40)
+		card.BackgroundColor3 = if isSelected then Color3.fromRGB(50, 50, 80) else Color3.fromRGB(30, 30, 45)
+		card.BorderSizePixel = 0
+		card.Text = ""
+		card.AutoButtonColor = true
+		card.ZIndex = 72
+		card.Parent = charFrame
+
+		local cardCorner = Instance.new("UICorner")
+		cardCorner.CornerRadius = UDim.new(0, 8)
+		cardCorner.Parent = card
+
+		if isSelected then
+			local stroke = Instance.new("UIStroke")
+			stroke.Color = Color3.fromRGB(200, 160, 255)
+			stroke.Thickness = 2
+			stroke.Parent = card
+		end
+
+		-- Color swatch
+		local swatch = Instance.new("Frame")
+		swatch.Size = UDim2.new(0, 40, 0, 40)
+		swatch.Position = UDim2.new(0.5, -20, 0, 10)
+		swatch.BackgroundColor3 = charDef.Color
+		swatch.BorderSizePixel = 0
+		swatch.ZIndex = 73
+		swatch.Parent = card
+
+		local swatchCorner = Instance.new("UICorner")
+		swatchCorner.CornerRadius = UDim.new(0, 6)
+		swatchCorner.Parent = swatch
+
+		createLabel(card, {
+			Size = UDim2.new(1, -8, 0, 20),
+			Position = UDim2.new(0, 4, 0, 55),
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Text = charDef.Name,
+			TextSize = 14,
+			Font = Enum.Font.GothamBlack,
+			ZIndex = 73,
+		})
+
+		createLabel(card, {
+			Size = UDim2.new(1, -8, 0, 60),
+			Position = UDim2.new(0, 4, 0, 78),
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Text = charDef.Description,
+			TextSize = 10,
+			TextWrapped = true,
+			TextColor3 = Color3.fromRGB(180, 180, 200),
+			ZIndex = 73,
+		})
+
+		card.MouseButton1Click:Connect(function()
+			local StatsService = Knit.GetService("StatsService")
+			StatsService:SelectCharacter(charDef.Id):catch(function(err)
+				warn("Select character failed:", err)
+			end)
+			-- Refresh lobby to show selection
+			task.delay(0.2, function()
+				self:_showLobby()
+			end)
+		end)
+	end
+end
+
+function HUDController:_buildStatsPanel(lifetimeStats: { [string]: any }, unlockedWeapons: { [string]: boolean })
+	local statsFrame = Instance.new("Frame")
+	statsFrame.Name = "StatsPanel"
+	statsFrame.Size = UDim2.new(0.35, -20, 0.7, 0)
+	statsFrame.Position = UDim2.new(0.65, 10, 0.12, 0)
+	statsFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+	statsFrame.BackgroundTransparency = 0.3
+	statsFrame.BorderSizePixel = 0
+	statsFrame.ZIndex = 71
+	statsFrame.Parent = _lobbyFrame
+
+	local statsCorner = Instance.new("UICorner")
+	statsCorner.CornerRadius = UDim.new(0, 8)
+	statsCorner.Parent = statsFrame
+
+	createLabel(statsFrame, {
+		Size = UDim2.new(1, 0, 0, 30),
+		Position = UDim2.new(0, 10, 0, 5),
+		Text = "Stats & Unlocks",
+		TextSize = 20,
+		Font = Enum.Font.GothamBlack,
+		ZIndex = 72,
+	})
+
+	local statTexts = {
+		`Total Kills: {lifetimeStats.TotalKills}`,
+		`Best Wave: {lifetimeStats.BestWave}`,
+		`Best Time: {formatTime(lifetimeStats.BestSurvivalTime)}`,
+		`Total Runs: {lifetimeStats.TotalRuns}`,
+	}
+
+	for i, text in statTexts do
+		createLabel(statsFrame, {
+			Size = UDim2.new(1, -20, 0, 22),
+			Position = UDim2.new(0, 10, 0, 35 + (i - 1) * 24),
+			Text = text,
+			TextSize = 14,
+			ZIndex = 72,
+		})
+	end
+
+	-- Weapon unlock progress
+	createLabel(statsFrame, {
+		Size = UDim2.new(1, -20, 0, 24),
+		Position = UDim2.new(0, 10, 0, 140),
+		Text = "Weapon Unlocks",
+		TextSize = 16,
+		Font = Enum.Font.GothamBlack,
+		ZIndex = 72,
+	})
+
+	local weaponUnlocks = {
+		{ Id = "Orbiter", Name = "Orbiter", Condition = "Default" },
+		{ Id = "Projectile", Name = "Projectile", Condition = "Reach Wave 5" },
+		{ Id = "Lightning", Name = "Lightning", Condition = "200 Total Kills" },
+		{ Id = "Aura", Name = "Aura", Condition = "Survive 5 Minutes" },
+	}
+
+	for i, weapon in weaponUnlocks do
+		local isUnlocked = unlockedWeapons[weapon.Id] or false
+		local color = if isUnlocked then Color3.fromRGB(100, 255, 100) else Color3.fromRGB(150, 150, 150)
+		local statusText = if isUnlocked then "UNLOCKED" else weapon.Condition
+
+		createLabel(statsFrame, {
+			Size = UDim2.new(1, -20, 0, 20),
+			Position = UDim2.new(0, 10, 0, 166 + (i - 1) * 22),
+			Text = `{weapon.Name}: {statusText}`,
+			TextSize = 12,
+			TextColor3 = color,
+			ZIndex = 72,
+		})
+	end
+end
+
+-------------------------------------------------
+-- WEAPON UNLOCK NOTIFICATION
+-------------------------------------------------
+
+function HUDController:ShowWeaponUnlocked(weaponName: string)
+	local notif = createLabel(_screenGui, {
+		Name = "UnlockNotif",
+		Size = UDim2.new(0, 400, 0, 50),
+		Position = UDim2.new(0.5, -200, 0.15, 0),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = `NEW WEAPON UNLOCKED: {weaponName}!`,
+		TextSize = 24,
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = Color3.fromRGB(255, 220, 50),
+		TextStrokeTransparency = 0.3,
+		ZIndex = 95,
+	})
+
+	task.delay(3, function()
+		if notif and notif.Parent then
+			notif:Destroy()
+		end
+	end)
+end
+
+-------------------------------------------------
 -- STATS UPDATE
 -------------------------------------------------
 
@@ -514,12 +973,10 @@ function HUDController:UpdateStats(stats: any)
 		return
 	end
 
-	-- Dismiss cards if player died
 	if stats.Health <= 0 then
 		_cardFrame.Visible = false
 	end
 
-	-- Health bar
 	local healthPct = stats.Health / stats.MaxHealth
 	_healthFill.Size = UDim2.new(math.clamp(healthPct, 0, 1), 0, 1, 0)
 	_healthText.Text = `{math.floor(stats.Health)} / {stats.MaxHealth}`
@@ -532,20 +989,15 @@ function HUDController:UpdateStats(stats: any)
 		_healthFill.BackgroundColor3 = Color3.fromRGB(220, 40, 40)
 	end
 
-	-- XP bar
 	local xpCfg = GameConfig.XP
 	local xpNeeded = xpCfg.BaseXPToLevel * (xpCfg.XPScaling ^ (stats.Level - 1))
 	local xpPct = stats.XP / xpNeeded
 	_xpFill.Size = UDim2.new(math.clamp(xpPct, 0, 1), 0, 1, 0)
 	_xpText.Text = `XP: {stats.XP} / {math.floor(xpNeeded)}`
 
-	-- Level
 	_levelText.Text = `Level {stats.Level}`
-
-	-- Kills
 	_killsText.Text = `Kills: {stats.Kills}`
 
-	-- Weapon list
 	self:_updateWeaponList(stats)
 end
 
@@ -567,6 +1019,7 @@ end
 
 function HUDController:KnitStart()
 	local GameService = Knit.GetService("GameService")
+	local StatsService = Knit.GetService("StatsService")
 
 	-- Get initial stats
 	task.spawn(function()
@@ -576,16 +1029,23 @@ function HUDController:KnitStart()
 		end
 	end)
 
-	-- Listen for stat updates
+	-- Load initial soul count
+	task.spawn(function()
+		local ok, souls = StatsService:GetSouls():await()
+		if ok and souls then
+			_soulsText.Text = `Souls: {souls}`
+		end
+	end)
+
 	GameService.PlayerStatsChanged:Connect(function(stats: any)
 		self:UpdateStats(stats)
 	end)
 
-	-- Game state changes
 	GameService.GameStateChanged:Connect(function(state: string, wave: number)
 		if state == "Wave" then
 			_cardFrame.Visible = false
 			_gameOverFrame.Visible = false
+			_lobbyFrame.Visible = false
 			self:ShowStateMessage(`Wave {wave}`, 2)
 			_waveText.Text = `Wave {wave}`
 		elseif state == "Intermission" then
@@ -593,43 +1053,43 @@ function HUDController:KnitStart()
 		elseif state == "GameOver" then
 			_cardFrame.Visible = false
 			self:ShowStateMessage("GAME OVER", 3)
+		elseif state == "Victory" then
+			_cardFrame.Visible = false
+			self:ShowStateMessage("VICTORY!", 3)
+		elseif state == "Lobby" then
+			_gameOverFrame.Visible = false
+			self:_showLobby()
 		elseif state == "WaitingForPlayers" then
 			_gameOverFrame.Visible = false
+			_lobbyFrame.Visible = false
 		end
 	end)
 
-	-- Wave changes
 	GameService.WaveChanged:Connect(function(wave: number, enemyCount: number)
 		_waveText.Text = `Wave {wave} - {enemyCount} enemies`
 	end)
 
-	-- Intermission countdown
 	GameService.IntermissionTick:Connect(function(seconds: number)
 		_stateText.Text = `Next wave in {seconds}...`
 		_stateText.TextTransparency = 0
 	end)
 
-	-- Damage vignette
 	GameService.PlayerDamaged:Connect(function(_damage: number)
 		self:_showDamageVignette()
 	end)
 
-	-- Level-up upgrade cards
 	GameService.ShowUpgradeCards:Connect(function(cards: any)
 		self:ShowUpgradeCards(cards)
 	end)
 
-	-- Game timer
 	GameService.GameTimerTick:Connect(function(elapsed: number)
 		_timerText.Text = formatTime(elapsed)
 	end)
 
-	-- Game over data
 	GameService.GameOverData:Connect(function(data: any)
 		self:ShowGameOver(data)
 	end)
 
-	-- Respawn countdown
 	GameService.RespawnCountdown:Connect(function(secondsLeft: number)
 		self:ShowStateMessage(`Respawning in {secondsLeft}...`)
 		if secondsLeft <= 1 then
@@ -639,6 +1099,23 @@ function HUDController:KnitStart()
 				end
 			end)
 		end
+	end)
+
+	-- Souls earned notification
+	StatsService.SoulsEarned:Connect(function(earned: number, total: number)
+		_soulsText.Text = `Souls: {total}`
+		-- Update game over screen with souls earned
+		if _gameOverFrame and _gameOverFrame.Visible then
+			local soulsEarnedLabel = _gameOverFrame:FindFirstChild("SoulsEarned") :: TextLabel?
+			if soulsEarnedLabel then
+				soulsEarnedLabel.Text = `+{earned} Souls`
+			end
+		end
+	end)
+
+	-- Weapon unlock notification
+	StatsService.WeaponUnlocked:Connect(function(weaponName: string)
+		self:ShowWeaponUnlocked(weaponName)
 	end)
 end
 

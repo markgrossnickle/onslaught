@@ -6,8 +6,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local Signal = require(ReplicatedStorage.Packages.Signal)
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local CharacterData = require(ReplicatedStorage.Shared.CharacterData)
 
-export type GameState = "WaitingForPlayers" | "Intermission" | "Wave" | "GameOver"
+export type GameState = "WaitingForPlayers" | "Lobby" | "Intermission" | "Wave" | "GameOver" | "Victory"
 
 local GameService = Knit.CreateService({
 	Name = "GameService",
@@ -36,6 +37,7 @@ export type GameOverData = {
 	Kills: number,
 	Level: number,
 	Wave: number,
+	Victory: boolean,
 }
 
 -- State
@@ -54,6 +56,7 @@ export type PlayerStats = {
 	WalkSpeed: number,
 	HealthRegen: number,
 	MagnetRange: number,
+	XPMultiplier: number, -- from relics + character
 	XP: number,
 	Level: number,
 	Upgrades: { [string]: number }, -- upgradeId -> stack count
@@ -61,6 +64,8 @@ export type PlayerStats = {
 	DeathCount: number,
 	LastDamageTime: number,
 	PendingLevelUps: number, -- queued level-ups waiting for card picks
+	LastStandUsed: boolean, -- Last Stand relic: survive one killing blow
+	Character: string, -- selected character id
 }
 
 local _playerStats: { [Player]: PlayerStats } = {}
@@ -75,6 +80,15 @@ local _xpGems: { XPGem } = {}
 local _gemFolder: Folder = nil :: any
 
 local CombatService: any
+local StatsService: any
+
+-- Timed run
+local RUN_DURATION = 900 -- 15 minutes
+local MEGA_BOSS_TIME = 840 -- 14 minutes
+local ENRAGE_TIME = RUN_DURATION -- 15 minutes
+local _megaBossSpawned: boolean = false
+local _lobbyReadyPlayers: { [Player]: boolean } = {}
+local _lobbyTimeout: number = 30
 
 function GameService:GetState(): GameState
 	return _state
@@ -185,13 +199,69 @@ end
 
 function GameService:_initPlayerStats(player: Player): PlayerStats
 	local cfg = GameConfig.Player
+
+	-- Base stats
+	local maxHealth = cfg.MaxHealth
+	local walkSpeed = cfg.BaseWalkSpeed
+	local damageMult = 1.0
+	local healthRegen = 0
+	local magnetRange = cfg.BaseMagnetRange
+	local xpMult = 1.0
+	local lastStandAvailable = false
+	local characterId = "Survivor"
+
+	-- Apply relic bonuses (from persistent data)
+	if StatsService then
+		local relicLevels = StatsService:GetRelicLevels(player)
+		local toughSkin = relicLevels["ToughSkin"] or 0
+		maxHealth += toughSkin * 10
+
+		local swiftFeet = relicLevels["SwiftFeet"] or 0
+		walkSpeed = math.floor(walkSpeed * (1 + swiftFeet * 0.05))
+
+		local keenEdge = relicLevels["KeenEdge"] or 0
+		damageMult += keenEdge * 0.08
+
+		local magPull = relicLevels["MagneticPull"] or 0
+		magnetRange *= (1 + magPull * 0.15)
+
+		local quickLearner = relicLevels["QuickLearner"] or 0
+		xpMult += quickLearner * 0.10
+
+		local regen = relicLevels["Regeneration"] or 0
+		healthRegen += regen * 1
+
+		local lastStand = relicLevels["LastStand"] or 0
+		lastStandAvailable = lastStand > 0
+
+		characterId = StatsService:GetSelectedCharacter(player)
+	end
+
+	-- Apply character passive bonuses
+	local charDef = CharacterData.GetCharacter(characterId)
+	if charDef and charDef.Passive then
+		if charDef.Passive.MaxHealthMult then
+			maxHealth = math.floor(maxHealth * charDef.Passive.MaxHealthMult)
+		end
+		if charDef.Passive.DamageMult then
+			damageMult *= charDef.Passive.DamageMult
+		end
+		if charDef.Passive.SpeedMult then
+			walkSpeed = math.floor(walkSpeed * charDef.Passive.SpeedMult)
+		end
+		if charDef.Passive.XPMult then
+			xpMult *= charDef.Passive.XPMult
+		end
+	end
+
 	local stats: PlayerStats = {
-		MaxHealth = cfg.MaxHealth,
-		Health = cfg.MaxHealth,
-		DamageMultiplier = 1.0,
-		WalkSpeed = cfg.BaseWalkSpeed,
-		HealthRegen = 0,
-		MagnetRange = cfg.BaseMagnetRange,
+		MaxHealth = maxHealth,
+		Health = maxHealth,
+		DamageMultiplier = damageMult,
+		WalkSpeed = walkSpeed,
+		HealthRegen = healthRegen,
+		MagnetRange = magnetRange,
+		XPMultiplier = xpMult,
 		XP = 0,
 		Level = 1,
 		Upgrades = {},
@@ -199,6 +269,8 @@ function GameService:_initPlayerStats(player: Player): PlayerStats
 		DeathCount = 0,
 		LastDamageTime = 0,
 		PendingLevelUps = 0,
+		LastStandUsed = not lastStandAvailable, -- if no relic, mark as "used"
+		Character = characterId,
 	}
 	_playerStats[player] = stats
 	return stats
@@ -235,6 +307,13 @@ function GameService:DamagePlayer(player: Player, damage: number)
 	stats.LastDamageTime = now
 
 	stats.Health = math.max(0, stats.Health - damage)
+
+	-- Last Stand relic: survive one killing blow per run
+	if stats.Health <= 0 and not stats.LastStandUsed then
+		stats.LastStandUsed = true
+		stats.Health = 1
+	end
+
 	self.Client.PlayerDamaged:Fire(player, damage)
 	self:_syncStats(player)
 
@@ -277,22 +356,7 @@ function GameService:_onPlayerDied(player: Player)
 	end
 
 	if allDead then
-		self:_setState("GameOver")
-
-		-- Send game over data to all players
-		for p, pStats in _playerStats do
-			if p.Parent == Players then
-				local data: GameOverData = {
-					SurvivalTime = _gameElapsed,
-					Kills = pStats.Kills,
-					Level = pStats.Level,
-					Wave = _currentWave,
-				}
-				self.Client.GameOverData:Fire(p, data)
-			end
-		end
-
-		_running = false
+		self:_endRun(false)
 	else
 		local cfg = GameConfig.Player
 		local deathCount = stats and stats.DeathCount or 1
@@ -511,7 +575,7 @@ function GameService:AddXP(player: Player, amount: number)
 		return
 	end
 
-	stats.XP += amount
+	stats.XP += math.floor(amount * stats.XPMultiplier)
 	local cfg = GameConfig.XP
 	local xpNeeded = cfg.BaseXPToLevel * (cfg.XPScaling ^ (stats.Level - 1))
 
@@ -561,20 +625,32 @@ function GameService:_offerUpgradeCards(player: Player)
 				continue
 			end
 		end
-		-- Don't offer weapon unlock cards if already owned
+		-- Check weapon unlocks (persistent progression)
+		local unlockedWeapons = StatsService and StatsService:GetUnlockedWeapons(player) or { Orbiter = true }
+
+		-- Don't offer weapon unlock cards if already owned or not unlocked
 		if card.Id == "NewProjectile" then
+			if not unlockedWeapons["Projectile"] then
+				continue
+			end
 			local ws = CombatService:GetWeaponState(player)
 			if ws and ws.HasProjectile then
 				continue
 			end
 		end
 		if card.Id == "NewLightning" then
+			if not unlockedWeapons["Lightning"] then
+				continue
+			end
 			local ws = CombatService:GetWeaponState(player)
 			if ws and ws.HasLightning then
 				continue
 			end
 		end
 		if card.Id == "NewAura" then
+			if not unlockedWeapons["Aura"] then
+				continue
+			end
 			local ws = CombatService:GetWeaponState(player)
 			if ws and ws.HasAura then
 				continue
@@ -695,6 +771,120 @@ function GameService:_regenLoop()
 end
 
 -------------------------------------------------
+-- END RUN / VICTORY
+-------------------------------------------------
+
+function GameService:_endRun(victory: boolean)
+	local endState: GameState = if victory then "Victory" else "GameOver"
+	self:_setState(endState)
+
+	for p, pStats in _playerStats do
+		if p.Parent == Players then
+			local data: GameOverData = {
+				SurvivalTime = _gameElapsed,
+				Kills = pStats.Kills,
+				Level = pStats.Level,
+				Wave = _currentWave,
+				Victory = victory,
+			}
+			self.Client.GameOverData:Fire(p, data)
+		end
+	end
+
+	_running = false
+	_megaBossSpawned = false
+
+	-- Transition to lobby after a short delay
+	task.delay(3, function()
+		if _state == endState then
+			self:_enterLobby()
+		end
+	end)
+end
+
+function GameService:MegaBossKilled()
+	if _megaBossSpawned then
+		self:_endRun(true)
+	end
+end
+
+function GameService:_checkTimedRun()
+	if not _running then
+		return
+	end
+
+	-- Spawn mega-boss at 14 minutes
+	if _gameElapsed >= MEGA_BOSS_TIME and not _megaBossSpawned then
+		_megaBossSpawned = true
+		-- The actual mega-boss spawn is handled by EnemyService listening for this
+		self.GameStateChanged:Fire("MegaBoss")
+	end
+
+	-- Enrage at 15 minutes (handled by EnemyService)
+	if _gameElapsed >= ENRAGE_TIME and _megaBossSpawned then
+		self.GameStateChanged:Fire("Enrage")
+	end
+end
+
+-------------------------------------------------
+-- LOBBY
+-------------------------------------------------
+
+function GameService:_enterLobby()
+	self:_setState("Lobby")
+	table.clear(_lobbyReadyPlayers)
+
+	-- Start lobby timeout
+	task.spawn(function()
+		local waited = 0
+		while _state == "Lobby" and waited < _lobbyTimeout do
+			task.wait(1)
+			waited += 1
+		end
+		if _state == "Lobby" then
+			self:_startNewRun()
+		end
+	end)
+end
+
+function GameService:_startNewRun()
+	-- Re-init all players with fresh stats (relic bonuses re-applied)
+	self:_clearAllGems()
+	for p in _playerStats do
+		if p.Parent == Players then
+			self:_initPlayerStats(p)
+			CombatService:ResetPlayer(p)
+
+			-- Apply character starting weapon bonuses
+			local charDef = CharacterData.GetCharacter(self:GetPlayerStats(p).Character)
+			if charDef then
+				-- Berserker gets extra orbiters
+				if charDef.Passive.ExtraOrbiters then
+					local ws = CombatService:GetWeaponState(p)
+					if ws then
+						ws.OrbiterCount += charDef.Passive.ExtraOrbiters
+						CombatService:_rebuildOrbiters(p)
+					end
+				end
+				-- Guardian starts with Aura if unlocked
+				if charDef.StartingWeapon == "Aura" and charDef.Id == "Guardian" then
+					local unlockedWeapons = StatsService and StatsService:GetUnlockedWeapons(p) or { Orbiter = true }
+					if unlockedWeapons["Aura"] then
+						CombatService:ApplyWeaponUpgrade(p, "NewAura")
+					end
+				end
+			end
+
+			self:_syncStats(p)
+			self:_respawnPlayer(p)
+		end
+	end
+
+	_megaBossSpawned = false
+	self:StartGame()
+end
+
+-------------------------------------------------
 -- CLIENT API
 -------------------------------------------------
 
@@ -710,33 +900,34 @@ function GameService.Client:PickUpgradeCard(player: Player, upgradeId: string): 
 	return self.Server:_applyUpgrade(player, upgradeId)
 end
 
-function GameService.Client:PlayAgain(player: Player): boolean
-	if _state ~= "GameOver" and _running then
+function GameService.Client:ReadyUp(player: Player): boolean
+	if _state ~= "Lobby" then
 		return false
 	end
-	-- Reset this player and restart if not already running
-	local stats = _playerStats[player]
-	if stats then
-		self.Server:_initPlayerStats(player)
-		CombatService:ResetPlayer(player)
-		self.Server:_syncStats(player)
-		self.Server:_respawnPlayer(player)
-	end
-	if not _running then
-		-- Clear gems and restart
-		self.Server:_clearAllGems()
-		for p, _s in _playerStats do
-			if p.Parent == Players and p ~= player then
-				self.Server:_initPlayerStats(p)
-				CombatService:ResetPlayer(p)
-				self.Server:_syncStats(p)
-				self.Server:_respawnPlayer(p)
-			end
+	_lobbyReadyPlayers[player] = true
+
+	-- Check if all players are ready
+	local allReady = true
+	for p in _playerStats do
+		if p.Parent == Players and not _lobbyReadyPlayers[p] then
+			allReady = false
+			break
 		end
-		self.Server:_setState("WaitingForPlayers")
-		task.delay(1, function()
-			self.Server:StartGame()
-		end)
+	end
+
+	if allReady then
+		self.Server:_startNewRun()
+	end
+	return true
+end
+
+function GameService.Client:PlayAgain(_player: Player): boolean
+	if _state ~= "GameOver" and _state ~= "Victory" and _running then
+		return false
+	end
+	-- Trigger lobby transition
+	if _state ~= "Lobby" then
+		self.Server:_enterLobby()
 	end
 	return true
 end
@@ -766,12 +957,14 @@ function GameService:KnitInit()
 
 	Players.PlayerRemoving:Connect(function(player: Player)
 		_playerStats[player] = nil
+		_lobbyReadyPlayers[player] = nil
 	end)
 end
 
 function GameService:KnitStart()
 	Players.CharacterAutoLoads = false
 	CombatService = Knit.GetService("CombatService")
+	StatsService = Knit.GetService("StatsService")
 
 	-- Spawn late joiners
 	Players.PlayerAdded:Connect(function(player: Player)
@@ -815,6 +1008,7 @@ function GameService:KnitStart()
 				_lastTimerTick = now
 				self.Client.GameTimerTick:FireAll(math.floor(_gameElapsed))
 			end
+			self:_checkTimedRun()
 		end
 	end)
 end

@@ -35,6 +35,8 @@ local _enemies: { EnemyData } = {}
 local _enemyFolder: Folder = nil :: any
 local _spawning: boolean = false
 local _lastBossSpawnTime: number = 0
+local _megaBossEnemy: EnemyData? = nil
+local _enraged: boolean = false
 
 local GameService: any
 local ArenaService: any
@@ -244,6 +246,12 @@ function EnemyService:_killEnemy(enemy: EnemyData, killer: Player?)
 
 	-- Spawn XP gem
 	GameService:SpawnXPGem(deathPos, enemy.XPValue)
+
+	-- Check if mega-boss was killed
+	if enemy.Type == "MegaBoss" then
+		_megaBossEnemy = nil
+		GameService:MegaBossKilled()
+	end
 
 	GameService:EnemyKilled(killer)
 
@@ -495,11 +503,36 @@ function EnemyService:KnitStart()
 		end)
 	end)
 
-	-- Clear enemies on game over
+	-- Clear enemies on game over / victory / lobby
 	GameService.GameStateChanged:Connect(function(state: string)
-		if state == "GameOver" or state == "WaitingForPlayers" then
+		if state == "GameOver" or state == "Victory" or state == "WaitingForPlayers" or state == "Lobby" then
 			self:_clearAllEnemies()
 			_lastBossSpawnTime = 0
+			_megaBossEnemy = nil
+			_enraged = false
+		elseif state == "MegaBoss" then
+			-- Spawn the mega-boss
+			task.spawn(function()
+				local positions = ArenaService:GetSpawnPositions(1)
+				local megaBoss = self:SpawnEnemy("MegaBoss", positions[1])
+				_megaBossEnemy = megaBoss
+				-- Notify clients
+				CombatService.Client.BossSpawned:FireAll()
+			end)
+		elseif state == "Enrage" and not _enraged then
+			_enraged = true
+			-- Enrage the mega-boss: 2x damage, 1.5x speed
+			if _megaBossEnemy and _megaBossEnemy.Alive then
+				_megaBossEnemy.Damage = math.floor(_megaBossEnemy.Damage * 2)
+				_megaBossEnemy.Speed *= 1.5
+				if _megaBossEnemy.Model and _megaBossEnemy.Model.PrimaryPart then
+					local align =
+						_megaBossEnemy.Model.PrimaryPart:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+					if align then
+						align.MaxVelocity = _megaBossEnemy.Speed
+					end
+				end
+			end
 		end
 	end)
 
