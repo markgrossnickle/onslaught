@@ -416,17 +416,20 @@ function EnemyService:_checkBossSpawn()
 	end
 
 	local timeSinceLastBoss = gameElapsed - _lastBossSpawnTime
+	local shouldSpawn = false
 	if _lastBossSpawnTime == 0 then
-		-- First boss
-		if gameElapsed >= enemyCfg.BossStartTime then
-			_lastBossSpawnTime = gameElapsed
-			local positions = ArenaService:GetSpawnPositions(1)
-			self:SpawnEnemy("Boss", positions[1])
-		end
-	elseif timeSinceLastBoss >= enemyCfg.BossInterval then
+		shouldSpawn = gameElapsed >= enemyCfg.BossStartTime
+	else
+		shouldSpawn = timeSinceLastBoss >= enemyCfg.BossInterval
+	end
+
+	if shouldSpawn then
 		_lastBossSpawnTime = gameElapsed
 		local positions = ArenaService:GetSpawnPositions(1)
 		self:SpawnEnemy("Boss", positions[1])
+		-- Add boss to wave enemy count so it doesn't end the wave early
+		local remaining = GameService:GetEnemiesRemaining()
+		GameService:SetEnemiesRemaining(remaining + 1)
 	end
 end
 

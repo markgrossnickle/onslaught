@@ -123,7 +123,8 @@ function CombatService:ApplyWeaponUpgrade(player: Player, upgradeId: string)
 		ws.AuraRadius *= 1.3
 		self:_rebuildAura(player)
 	elseif upgradeId == "AuraDamage" then
-		ws.AuraDamage = math.floor(ws.AuraDamage * 1.4)
+		-- Damage recalculated in UpdateDamage() using stack count
+		return
 	end
 end
 
@@ -137,10 +138,17 @@ function CombatService:UpdateDamage(player: Player)
 	if not stats then
 		return
 	end
-	ws.OrbiterDamage = math.floor(GameConfig.Weapons.Orbiter.Damage * stats.DamageMultiplier)
-	ws.ProjectileDamage = math.floor(GameConfig.Weapons.Projectile.Damage * stats.DamageMultiplier)
-	ws.LightningDamage = math.floor(GameConfig.Weapons.Lightning.Damage * stats.DamageMultiplier)
-	ws.AuraDamage = math.floor(GameConfig.Weapons.Aura.Damage * stats.DamageMultiplier)
+	local mult = stats.DamageMultiplier
+	ws.OrbiterDamage = math.floor(GameConfig.Weapons.Orbiter.Damage * mult)
+	ws.ProjectileDamage = math.floor(GameConfig.Weapons.Projectile.Damage * mult)
+	ws.LightningDamage = math.floor(GameConfig.Weapons.Lightning.Damage * mult)
+
+	-- Aura damage must include AuraDamage upgrade stacks (1.4x per stack)
+	local auraDmgStacks = 0
+	if stats.Upgrades then
+		auraDmgStacks = stats.Upgrades["AuraDamage"] or 0
+	end
+	ws.AuraDamage = math.floor(GameConfig.Weapons.Aura.Damage * mult * (1.4 ^ auraDmgStacks))
 end
 
 -------------------------------------------------
@@ -185,9 +193,23 @@ function CombatService:_rebuildOrbiters(player: Player)
 	_orbiterParts[player] = parts
 end
 
+local _lastOrbiterCleanup: number = 0
+
 function CombatService:_updateOrbiters(dt: number)
 	local orbCfg = GameConfig.Weapons.Orbiter
 	local now = tick()
+
+	-- Periodically clean up stale OrbiterHitTimers entries (every 5s)
+	if (now - _lastOrbiterCleanup) >= 5 then
+		_lastOrbiterCleanup = now
+		for _, ws in _weaponStates do
+			for model in ws.OrbiterHitTimers do
+				if not model or not model.Parent then
+					ws.OrbiterHitTimers[model] = nil
+				end
+			end
+		end
+	end
 
 	for player, ws in _weaponStates do
 		if not ws.HasOrbiter then

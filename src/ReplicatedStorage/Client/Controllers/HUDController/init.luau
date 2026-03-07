@@ -514,6 +514,11 @@ function HUDController:UpdateStats(stats: any)
 		return
 	end
 
+	-- Dismiss cards if player died
+	if stats.Health <= 0 then
+		_cardFrame.Visible = false
+	end
+
 	-- Health bar
 	local healthPct = stats.Health / stats.MaxHealth
 	_healthFill.Size = UDim2.new(math.clamp(healthPct, 0, 1), 0, 1, 0)

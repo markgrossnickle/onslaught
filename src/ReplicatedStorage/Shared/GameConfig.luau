@@ -177,6 +177,7 @@ GameConfig.XPGems = {
 	GlowColor = Color3.fromRGB(120, 255, 160),
 	MagnetSpeed = 60,
 	Lifetime = 30,
+	MaxGems = 300, -- cap to prevent performance issues
 }
 
 -- XP / Leveling

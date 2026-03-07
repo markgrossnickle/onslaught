@@ -235,6 +235,12 @@ function GameService:HealPlayer(player: Player, amount: number)
 end
 
 function GameService:_onPlayerDied(player: Player)
+	local stats = _playerStats[player]
+	if stats then
+		-- Clear pending level-ups so stale card picks can't apply after death
+		stats.PendingLevelUps = 0
+	end
+
 	local char = player.Character
 	if char then
 		local humanoid = char:FindFirstChildOfClass("Humanoid")
@@ -271,9 +277,9 @@ function GameService:_onPlayerDied(player: Player)
 	else
 		task.delay(GameConfig.Player.RespawnDelay, function()
 			if player.Parent == Players then
-				local stats = _playerStats[player]
-				if stats then
-					stats.Health = stats.MaxHealth
+				local respawnStats = _playerStats[player]
+				if respawnStats then
+					respawnStats.Health = respawnStats.MaxHealth
 					self:_syncStats(player)
 					self:_respawnPlayer(player)
 				end
@@ -312,6 +318,15 @@ end
 
 function GameService:SpawnXPGem(position: Vector3, value: number)
 	local cfg = GameConfig.XPGems
+
+	-- Cap gems to prevent performance issues; remove oldest if at limit
+	if #_xpGems >= cfg.MaxGems then
+		local oldest = _xpGems[1]
+		if oldest.Part and oldest.Part.Parent then
+			oldest.Part:Destroy()
+		end
+		table.remove(_xpGems, 1)
+	end
 
 	local part = Instance.new("Part")
 	part.Name = "XPGem"
