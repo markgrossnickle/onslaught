@@ -34,6 +34,7 @@ local EnemyService = Knit.CreateService({
 local _enemies: { EnemyData } = {}
 local _enemyFolder: Folder = nil :: any
 local _spawning: boolean = false
+local _lastBossSpawnTime: number = 0
 
 local GameService: any
 local ArenaService: any
@@ -340,11 +341,10 @@ function EnemyService:_updateEnemies(dt: number)
 	end
 end
 
-function EnemyService:_spawnWaveEnemies(wave: number, totalEnemies: number)
-	_spawning = true
+function EnemyService:_getAvailableTypes(wave: number, gameElapsed: number): { string }
 	local waveCfg = GameConfig.Waves
+	local enemyCfg = GameConfig.Enemies
 
-	-- Determine available enemy types
 	local types = { "Grunt" }
 	if wave >= waveCfg.BruteIntroWave then
 		table.insert(types, "Brute")
@@ -353,12 +353,34 @@ function EnemyService:_spawnWaveEnemies(wave: number, totalEnemies: number)
 		table.insert(types, "Dasher")
 	end
 
+	-- Time-based introductions
+	for typeName, introTime in enemyCfg.IntroTimes do
+		if gameElapsed >= introTime and not table.find(types, typeName) then
+			table.insert(types, typeName)
+		end
+	end
+
+	return types
+end
+
+function EnemyService:_spawnWaveEnemies(wave: number, totalEnemies: number)
+	_spawning = true
+	local waveCfg = GameConfig.Waves
+	local maxConcurrent = GameConfig.Enemies.MaxConcurrent
+
+	-- Calculate spawn interval with acceleration
+	local spawnInterval =
+		math.max(waveCfg.MinSpawnInterval, waveCfg.SpawnInterval - (wave - 1) * waveCfg.SpawnIntervalDecayPerWave)
+
+	local gameElapsed = GameService:GetGameElapsed()
+	local types = self:_getAvailableTypes(wave, gameElapsed)
+
 	local rng = Random.new()
 	local spawned = 0
 
 	while spawned < totalEnemies and _spawning do
 		-- Don't exceed concurrent limit
-		if #_enemies >= waveCfg.MaxConcurrentEnemies then
+		if #_enemies >= maxConcurrent then
 			task.wait(0.5)
 			continue
 		end
@@ -369,11 +391,38 @@ function EnemyService:_spawnWaveEnemies(wave: number, totalEnemies: number)
 		spawned += 1
 
 		if spawned < totalEnemies then
-			task.wait(waveCfg.SpawnInterval)
+			task.wait(spawnInterval)
 		end
 	end
 
 	_spawning = false
+end
+
+function EnemyService:_checkBossSpawn()
+	local enemyCfg = GameConfig.Enemies
+	local gameElapsed = GameService:GetGameElapsed()
+
+	if gameElapsed < enemyCfg.BossStartTime then
+		return
+	end
+
+	if #_enemies >= enemyCfg.MaxConcurrent then
+		return
+	end
+
+	local timeSinceLastBoss = gameElapsed - _lastBossSpawnTime
+	if _lastBossSpawnTime == 0 then
+		-- First boss
+		if gameElapsed >= enemyCfg.BossStartTime then
+			_lastBossSpawnTime = gameElapsed
+			local positions = ArenaService:GetSpawnPositions(1)
+			self:SpawnEnemy("Boss", positions[1])
+		end
+	elseif timeSinceLastBoss >= enemyCfg.BossInterval then
+		_lastBossSpawnTime = gameElapsed
+		local positions = ArenaService:GetSpawnPositions(1)
+		self:SpawnEnemy("Boss", positions[1])
+	end
 end
 
 function EnemyService:_clearAllEnemies()
@@ -429,12 +478,14 @@ function EnemyService:KnitStart()
 	GameService.GameStateChanged:Connect(function(state: string)
 		if state == "GameOver" or state == "WaitingForPlayers" then
 			self:_clearAllEnemies()
+			_lastBossSpawnTime = 0
 		end
 	end)
 
-	-- AI update loop
+	-- AI update loop + boss spawn check
 	game:GetService("RunService").Heartbeat:Connect(function(dt: number)
 		self:_updateEnemies(dt)
+		self:_checkBossSpawn()
 	end)
 end
 

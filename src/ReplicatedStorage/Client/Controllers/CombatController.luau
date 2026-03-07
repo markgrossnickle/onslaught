@@ -6,6 +6,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
@@ -133,7 +134,7 @@ function CombatController:_playDeathEffect(position: Vector3, color: Color3)
 
 		task.delay(1.5, function()
 			if part and part.Parent then
-				game:GetService("TweenService"):Create(part, TweenInfo.new(0.5), { Transparency = 1 }):Play()
+				TweenService:Create(part, TweenInfo.new(0.5), { Transparency = 1 }):Play()
 				task.delay(0.5, function()
 					part:Destroy()
 				end)
@@ -143,7 +144,6 @@ function CombatController:_playDeathEffect(position: Vector3, color: Color3)
 end
 
 function CombatController:_playGemCollectEffect()
-	-- Brief green flash around player
 	local char = Player.Character
 	if not char then
 		return
@@ -178,6 +178,115 @@ function CombatController:_playGemCollectEffect()
 end
 
 -------------------------------------------------
+-- LIGHTNING VFX
+-------------------------------------------------
+
+function CombatController:_playLightningBeam(startPos: Vector3, endPos: Vector3)
+	local lightCfg = GameConfig.Weapons.Lightning
+
+	local dist = (endPos - startPos).Magnitude
+	local midPoint = (startPos + endPos) / 2
+
+	local beam = Instance.new("Part")
+	beam.Name = "LightningBeam"
+	beam.Size = Vector3.new(0.4, 0.4, dist)
+	beam.Color = lightCfg.BeamColor
+	beam.Material = Enum.Material.Neon
+	beam.Anchored = true
+	beam.CanCollide = false
+	beam.CastShadow = false
+	beam.CFrame = CFrame.lookAt(midPoint, endPos)
+	beam.Parent = workspace
+
+	task.delay(lightCfg.BeamDuration, function()
+		if beam and beam.Parent then
+			TweenService:Create(beam, TweenInfo.new(0.1), { Transparency = 1 }):Play()
+			task.delay(0.1, function()
+				beam:Destroy()
+			end)
+		end
+	end)
+end
+
+-------------------------------------------------
+-- LEVEL UP VFX
+-------------------------------------------------
+
+function CombatController:_playLevelUpEffect()
+	local char = Player.Character
+	if not char then
+		return
+	end
+	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then
+		return
+	end
+
+	-- Flash ring
+	local ring = Instance.new("Part")
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Size = Vector3.new(0.5, 8, 8)
+	ring.Color = Color3.fromRGB(255, 220, 50)
+	ring.Material = Enum.Material.Neon
+	ring.Anchored = true
+	ring.CanCollide = false
+	ring.CastShadow = false
+	ring.Transparency = 0.3
+	ring.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, 0, math.rad(90))
+	ring.Parent = workspace
+
+	-- "LEVEL UP!" text
+	local textPart = Instance.new("Part")
+	textPart.Size = Vector3.new(0.1, 0.1, 0.1)
+	textPart.Position = root.Position + Vector3.new(0, 5, 0)
+	textPart.Anchored = true
+	textPart.CanCollide = false
+	textPart.Transparency = 1
+	textPart.Parent = workspace
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.new(0, 200, 0, 60)
+	billboard.AlwaysOnTop = true
+	billboard.Parent = textPart
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = "LEVEL UP!"
+	label.TextColor3 = Color3.fromRGB(255, 220, 50)
+	label.Font = Enum.Font.GothamBlack
+	label.TextSize = 36
+	label.TextStrokeTransparency = 0.3
+	label.TextStrokeColor3 = Color3.fromRGB(100, 80, 0)
+	label.Parent = billboard
+
+	task.spawn(function()
+		local elapsed = 0
+		local duration = 1.5
+		while elapsed < duration do
+			local dt = RunService.RenderStepped:Wait()
+			elapsed += dt
+			local t = elapsed / duration
+
+			-- Expand ring
+			local ringSize = 8 + t * 20
+			ring.Size = Vector3.new(0.5, ringSize, ringSize)
+			ring.Transparency = 0.3 + t * 0.7
+
+			-- Float text up and fade
+			textPart.Position += Vector3.new(0, dt * 15, 0)
+			if t > 0.5 then
+				label.TextTransparency = (t - 0.5) * 2
+				label.TextStrokeTransparency = 0.3 + (t - 0.5) * 1.4
+			end
+		end
+
+		ring:Destroy()
+		textPart:Destroy()
+	end)
+end
+
+-------------------------------------------------
 -- LIFECYCLE
 -------------------------------------------------
 
@@ -186,6 +295,7 @@ function CombatController:KnitInit() end
 function CombatController:KnitStart()
 	local EnemyService = Knit.GetService("EnemyService")
 	local GameService = Knit.GetService("GameService")
+	local CombatService = Knit.GetService("CombatService")
 
 	-- Isometric camera
 	self:_setupCamera()
@@ -206,6 +316,20 @@ function CombatController:KnitStart()
 	-- XP gem collect VFX
 	GameService.XPGemCollected:Connect(function(_amount: number)
 		self:_playGemCollectEffect()
+	end)
+
+	-- Lightning beam VFX
+	CombatService.LightningFired:Connect(function(startPos: Vector3, _targetPos: Vector3, chainPositions: { Vector3 })
+		local prevPos = startPos
+		for _, chainPos in chainPositions do
+			self:_playLightningBeam(prevPos, chainPos)
+			prevPos = chainPos
+		end
+	end)
+
+	-- Level up VFX
+	GameService.ShowUpgradeCards:Connect(function(_cards: any)
+		self:_playLevelUpEffect()
 	end)
 end
 

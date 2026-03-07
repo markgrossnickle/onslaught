@@ -23,6 +23,9 @@ local _killsText: TextLabel = nil :: any
 local _stateText: TextLabel = nil :: any
 local _levelText: TextLabel = nil :: any
 local _cardFrame: Frame = nil :: any
+local _timerText: TextLabel = nil :: any
+local _weaponListFrame: Frame = nil :: any
+local _gameOverFrame: Frame = nil :: any
 
 local function createLabel(parent: Instance, props: { [string]: any }): TextLabel
 	local label = Instance.new("TextLabel")
@@ -36,6 +39,12 @@ local function createLabel(parent: Instance, props: { [string]: any }): TextLabe
 	end
 	label.Parent = parent
 	return label
+end
+
+local function formatTime(seconds: number): string
+	local mins = math.floor(seconds / 60)
+	local secs = seconds % 60
+	return string.format("%d:%02d", mins, secs)
 end
 
 function HUDController:_buildUI()
@@ -78,11 +87,11 @@ function HUDController:_buildUI()
 		ZIndex = 2,
 	})
 
-	-- XP Bar (bottom left, above health)
+	-- XP Bar (bottom, full width)
 	local xpContainer = Instance.new("Frame")
 	xpContainer.Name = "XPContainer"
-	xpContainer.Size = UDim2.new(0, 300, 0, 14)
-	xpContainer.Position = UDim2.new(0, 20, 1, -90)
+	xpContainer.Size = UDim2.new(1, -40, 0, 14)
+	xpContainer.Position = UDim2.new(0, 20, 1, -20)
 	xpContainer.BackgroundColor3 = Color3.fromRGB(20, 20, 40)
 	xpContainer.BorderSizePixel = 0
 	xpContainer.Parent = _screenGui
@@ -115,20 +124,31 @@ function HUDController:_buildUI()
 	_levelText = createLabel(_screenGui, {
 		Name = "LevelText",
 		Size = UDim2.new(0, 200, 0, 30),
-		Position = UDim2.new(0, 20, 1, -120),
+		Position = UDim2.new(0, 20, 1, -100),
 		Text = "Level 1",
 		TextSize = 20,
 		Font = Enum.Font.GothamBold,
 	})
 
-	-- Wave info (top center)
+	-- Timer (top center)
+	_timerText = createLabel(_screenGui, {
+		Name = "TimerText",
+		Size = UDim2.new(0, 200, 0, 30),
+		Position = UDim2.new(0.5, -100, 0, 10),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "0:00",
+		TextSize = 22,
+		Font = Enum.Font.GothamBlack,
+	})
+
+	-- Wave info (top center, below timer)
 	_waveText = createLabel(_screenGui, {
 		Name = "WaveText",
-		Size = UDim2.new(0, 400, 0, 40),
-		Position = UDim2.new(0.5, -200, 0, 20),
+		Size = UDim2.new(0, 400, 0, 30),
+		Position = UDim2.new(0.5, -200, 0, 40),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "Wave 1",
-		TextSize = 28,
+		TextSize = 22,
 		Font = Enum.Font.GothamBlack,
 	})
 
@@ -154,9 +174,106 @@ function HUDController:_buildUI()
 		TextSize = 20,
 	})
 
+	-- Weapon list (left side)
+	self:_buildWeaponList()
+
 	-- Level-up card picker frame (hidden by default)
 	self:_buildCardFrame()
+
+	-- Game over screen (hidden by default)
+	self:_buildGameOverFrame()
 end
+
+-------------------------------------------------
+-- WEAPON LIST
+-------------------------------------------------
+
+function HUDController:_buildWeaponList()
+	_weaponListFrame = Instance.new("Frame")
+	_weaponListFrame.Name = "WeaponList"
+	_weaponListFrame.Size = UDim2.new(0, 140, 0, 200)
+	_weaponListFrame.Position = UDim2.new(0, 10, 0.5, -100)
+	_weaponListFrame.BackgroundTransparency = 1
+	_weaponListFrame.BorderSizePixel = 0
+	_weaponListFrame.Parent = _screenGui
+
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Vertical
+	layout.Padding = UDim.new(0, 4)
+	layout.Parent = _weaponListFrame
+end
+
+function HUDController:_updateWeaponList(stats: any)
+	if not _weaponListFrame then
+		return
+	end
+
+	-- Clear old weapon entries
+	for _, child in _weaponListFrame:GetChildren() do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
+
+	local weapons = { "Orbiter" } -- Always have orbiter
+	local upgrades = stats.Upgrades or {}
+
+	if upgrades["NewProjectile"] then
+		table.insert(weapons, "Projectile")
+	end
+	if upgrades["NewLightning"] then
+		table.insert(weapons, "Lightning")
+	end
+	if upgrades["NewAura"] then
+		table.insert(weapons, "Aura")
+	end
+
+	local weaponColors = {
+		Orbiter = GameConfig.Weapons.Orbiter.Color,
+		Projectile = GameConfig.Weapons.Projectile.Color,
+		Lightning = GameConfig.Weapons.Lightning.BeamColor,
+		Aura = GameConfig.Weapons.Aura.Color,
+	}
+
+	for _, weaponName in weapons do
+		local entry = Instance.new("Frame")
+		entry.Name = weaponName
+		entry.Size = UDim2.new(1, 0, 0, 24)
+		entry.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+		entry.BackgroundTransparency = 0.4
+		entry.BorderSizePixel = 0
+		entry.Parent = _weaponListFrame
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 4)
+		corner.Parent = entry
+
+		-- Color dot
+		local dot = Instance.new("Frame")
+		dot.Size = UDim2.new(0, 12, 0, 12)
+		dot.Position = UDim2.new(0, 6, 0.5, -6)
+		dot.BackgroundColor3 = weaponColors[weaponName] or Color3.fromRGB(200, 200, 200)
+		dot.BorderSizePixel = 0
+		dot.Parent = entry
+
+		local dotCorner = Instance.new("UICorner")
+		dotCorner.CornerRadius = UDim.new(1, 0)
+		dotCorner.Parent = dot
+
+		createLabel(entry, {
+			Name = "WeaponName",
+			Size = UDim2.new(1, -26, 1, 0),
+			Position = UDim2.new(0, 24, 0, 0),
+			Text = weaponName,
+			TextSize = 13,
+			Font = Enum.Font.GothamBold,
+		})
+	end
+end
+
+-------------------------------------------------
+-- CARD FRAME
+-------------------------------------------------
 
 function HUDController:_buildCardFrame()
 	_cardFrame = Instance.new("Frame")
@@ -266,6 +383,132 @@ function HUDController:ShowUpgradeCards(cards: { { Id: string, Name: string, Des
 	end
 end
 
+-------------------------------------------------
+-- GAME OVER SCREEN
+-------------------------------------------------
+
+function HUDController:_buildGameOverFrame()
+	_gameOverFrame = Instance.new("Frame")
+	_gameOverFrame.Name = "GameOverFrame"
+	_gameOverFrame.Size = UDim2.new(1, 0, 1, 0)
+	_gameOverFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	_gameOverFrame.BackgroundTransparency = 0.3
+	_gameOverFrame.BorderSizePixel = 0
+	_gameOverFrame.Visible = false
+	_gameOverFrame.ZIndex = 60
+	_gameOverFrame.Parent = _screenGui
+
+	createLabel(_gameOverFrame, {
+		Name = "GameOverTitle",
+		Size = UDim2.new(1, 0, 0, 60),
+		Position = UDim2.new(0, 0, 0.2, 0),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "GAME OVER",
+		TextSize = 48,
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = Color3.fromRGB(220, 40, 40),
+		ZIndex = 61,
+	})
+
+	createLabel(_gameOverFrame, {
+		Name = "SurvivalTime",
+		Size = UDim2.new(1, 0, 0, 30),
+		Position = UDim2.new(0, 0, 0.35, 0),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "Survival Time: 0:00",
+		TextSize = 22,
+		ZIndex = 61,
+	})
+
+	createLabel(_gameOverFrame, {
+		Name = "KillsStat",
+		Size = UDim2.new(1, 0, 0, 30),
+		Position = UDim2.new(0, 0, 0.4, 0),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "Kills: 0",
+		TextSize = 22,
+		ZIndex = 61,
+	})
+
+	createLabel(_gameOverFrame, {
+		Name = "LevelStat",
+		Size = UDim2.new(1, 0, 0, 30),
+		Position = UDim2.new(0, 0, 0.45, 0),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "Level: 1",
+		TextSize = 22,
+		ZIndex = 61,
+	})
+
+	createLabel(_gameOverFrame, {
+		Name = "WaveStat",
+		Size = UDim2.new(1, 0, 0, 30),
+		Position = UDim2.new(0, 0, 0.5, 0),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "Wave: 1",
+		TextSize = 22,
+		ZIndex = 61,
+	})
+
+	local playAgainBtn = Instance.new("TextButton")
+	playAgainBtn.Name = "PlayAgainBtn"
+	playAgainBtn.Size = UDim2.new(0, 200, 0, 50)
+	playAgainBtn.Position = UDim2.new(0.5, -100, 0.6, 0)
+	playAgainBtn.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
+	playAgainBtn.BorderSizePixel = 0
+	playAgainBtn.Text = "Play Again"
+	playAgainBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	playAgainBtn.Font = Enum.Font.GothamBlack
+	playAgainBtn.TextSize = 24
+	playAgainBtn.AutoButtonColor = true
+	playAgainBtn.ZIndex = 62
+	playAgainBtn.Parent = _gameOverFrame
+
+	local btnCorner = Instance.new("UICorner")
+	btnCorner.CornerRadius = UDim.new(0, 10)
+	btnCorner.Parent = playAgainBtn
+
+	playAgainBtn.MouseButton1Click:Connect(function()
+		_gameOverFrame.Visible = false
+		local GameService = Knit.GetService("GameService")
+		GameService:PlayAgain():catch(function(err)
+			warn("PlayAgain failed:", err)
+		end)
+	end)
+end
+
+function HUDController:ShowGameOver(data: any)
+	if not _gameOverFrame then
+		return
+	end
+
+	_gameOverFrame.Visible = true
+
+	local survTime = _gameOverFrame:FindFirstChild("SurvivalTime") :: TextLabel?
+	if survTime then
+		survTime.Text = `Survival Time: {formatTime(data.SurvivalTime)}`
+	end
+
+	local killsStat = _gameOverFrame:FindFirstChild("KillsStat") :: TextLabel?
+	if killsStat then
+		killsStat.Text = `Kills: {data.Kills}`
+	end
+
+	local levelStat = _gameOverFrame:FindFirstChild("LevelStat") :: TextLabel?
+	if levelStat then
+		levelStat.Text = `Level: {data.Level}`
+	end
+
+	local waveStat = _gameOverFrame:FindFirstChild("WaveStat") :: TextLabel?
+	if waveStat then
+		waveStat.Text = `Wave: {data.Wave}`
+	end
+end
+
+-------------------------------------------------
+-- STATS UPDATE
+-------------------------------------------------
+
 function HUDController:UpdateStats(stats: any)
 	if not stats then
 		return
@@ -296,6 +539,9 @@ function HUDController:UpdateStats(stats: any)
 
 	-- Kills
 	_killsText.Text = `Kills: {stats.Kills}`
+
+	-- Weapon list
+	self:_updateWeaponList(stats)
 end
 
 function HUDController:ShowStateMessage(text: string, duration: number?)
@@ -334,6 +580,7 @@ function HUDController:KnitStart()
 	GameService.GameStateChanged:Connect(function(state: string, wave: number)
 		if state == "Wave" then
 			_cardFrame.Visible = false
+			_gameOverFrame.Visible = false
 			self:ShowStateMessage(`Wave {wave}`, 2)
 			_waveText.Text = `Wave {wave}`
 		elseif state == "Intermission" then
@@ -341,6 +588,8 @@ function HUDController:KnitStart()
 		elseif state == "GameOver" then
 			_cardFrame.Visible = false
 			self:ShowStateMessage("GAME OVER", 3)
+		elseif state == "WaitingForPlayers" then
+			_gameOverFrame.Visible = false
 		end
 	end)
 
@@ -363,6 +612,16 @@ function HUDController:KnitStart()
 	-- Level-up upgrade cards
 	GameService.ShowUpgradeCards:Connect(function(cards: any)
 		self:ShowUpgradeCards(cards)
+	end)
+
+	-- Game timer
+	GameService.GameTimerTick:Connect(function(elapsed: number)
+		_timerText.Text = formatTime(elapsed)
+	end)
+
+	-- Game over data
+	GameService.GameOverData:Connect(function(data: any)
+		self:ShowGameOver(data)
 	end)
 end
 

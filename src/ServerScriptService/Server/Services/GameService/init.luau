@@ -19,6 +19,8 @@ local GameService = Knit.CreateService({
 		PlayerDamaged = Knit.CreateSignal(),
 		ShowUpgradeCards = Knit.CreateSignal(), -- (cards: {{Id, Name, Description}})
 		XPGemCollected = Knit.CreateSignal(), -- (amount: number)
+		GameTimerTick = Knit.CreateSignal(), -- (elapsedSeconds: number)
+		GameOverData = Knit.CreateSignal(), -- (data: GameOverData)
 	},
 
 	WaveStarted = Signal.new(),
@@ -27,11 +29,21 @@ local GameService = Knit.CreateService({
 	PlayerLeveledUp = Signal.new(), -- (player)
 })
 
+-- Game over stats sent to clients
+export type GameOverData = {
+	SurvivalTime: number,
+	Kills: number,
+	Level: number,
+	Wave: number,
+}
+
 -- State
 local _state: GameState = "WaitingForPlayers"
 local _currentWave: number = 0
 local _enemiesRemaining: number = 0
 local _running: boolean = false
+local _gameStartTime: number = 0 -- tick() when game started
+local _gameElapsed: number = 0 -- seconds of game time elapsed
 
 -- Player stats (runtime, not persisted)
 export type PlayerStats = {
@@ -132,6 +144,8 @@ function GameService:StartGame()
 	end
 	_running = true
 	_currentWave = 0
+	_gameStartTime = tick()
+	_gameElapsed = 0
 
 	for player, stats in _playerStats do
 		if player.Parent == Players then
@@ -142,6 +156,10 @@ function GameService:StartGame()
 	end
 
 	self:_startNextWave()
+end
+
+function GameService:GetGameElapsed(): number
+	return _gameElapsed
 end
 
 function GameService:GetPlayerStats(player: Player): PlayerStats?
@@ -235,21 +253,21 @@ function GameService:_onPlayerDied(player: Player)
 
 	if allDead then
 		self:_setState("GameOver")
-		task.wait(3)
-		_running = false
-		_currentWave = 0
-		self:_clearAllGems()
-		for p, _s in _playerStats do
+
+		-- Send game over data to all players
+		for p, pStats in _playerStats do
 			if p.Parent == Players then
-				self:_initPlayerStats(p)
-				CombatService:ResetPlayer(p)
-				self:_syncStats(p)
-				self:_respawnPlayer(p)
+				local data: GameOverData = {
+					SurvivalTime = _gameElapsed,
+					Kills = pStats.Kills,
+					Level = pStats.Level,
+					Wave = _currentWave,
+				}
+				self.Client.GameOverData:Fire(p, data)
 			end
 		end
-		self:_setState("WaitingForPlayers")
-		task.wait(2)
-		self:StartGame()
+
+		_running = false
 	else
 		task.delay(GameConfig.Player.RespawnDelay, function()
 			if player.Parent == Players then
@@ -442,14 +460,35 @@ function GameService:_offerUpgradeCards(player: Player)
 		-- Check weapon requirements
 		if card.RequiresWeapon then
 			local ws = CombatService:GetWeaponState(player)
-			if card.RequiresWeapon == "Projectile" and (not ws or not ws.HasProjectile) then
+			if not ws then
+				continue
+			end
+			if card.RequiresWeapon == "Projectile" and not ws.HasProjectile then
+				continue
+			end
+			if card.RequiresWeapon == "Lightning" and not ws.HasLightning then
+				continue
+			end
+			if card.RequiresWeapon == "Aura" and not ws.HasAura then
 				continue
 			end
 		end
-		-- Don't offer NewProjectile if already owned
+		-- Don't offer weapon unlock cards if already owned
 		if card.Id == "NewProjectile" then
 			local ws = CombatService:GetWeaponState(player)
 			if ws and ws.HasProjectile then
+				continue
+			end
+		end
+		if card.Id == "NewLightning" then
+			local ws = CombatService:GetWeaponState(player)
+			if ws and ws.HasLightning then
+				continue
+			end
+		end
+		if card.Id == "NewAura" then
+			local ws = CombatService:GetWeaponState(player)
+			if ws and ws.HasAura then
 				continue
 			end
 		end
@@ -525,6 +564,11 @@ function GameService:_applyUpgrade(player: Player, upgradeId: string): boolean
 		or upgradeId == "OrbiterCount"
 		or upgradeId == "ProjectilePierce"
 		or upgradeId == "ProjectileSpeed"
+		or upgradeId == "NewLightning"
+		or upgradeId == "LightningChain"
+		or upgradeId == "NewAura"
+		or upgradeId == "AuraRadius"
+		or upgradeId == "AuraDamage"
 	then
 		CombatService:ApplyWeaponUpgrade(player, upgradeId)
 		CombatService:UpdateDamage(player)
@@ -576,6 +620,37 @@ end
 
 function GameService.Client:PickUpgradeCard(player: Player, upgradeId: string): boolean
 	return self.Server:_applyUpgrade(player, upgradeId)
+end
+
+function GameService.Client:PlayAgain(player: Player): boolean
+	if _state ~= "GameOver" and _running then
+		return false
+	end
+	-- Reset this player and restart if not already running
+	local stats = _playerStats[player]
+	if stats then
+		self.Server:_initPlayerStats(player)
+		CombatService:ResetPlayer(player)
+		self.Server:_syncStats(player)
+		self.Server:_respawnPlayer(player)
+	end
+	if not _running then
+		-- Clear gems and restart
+		self.Server:_clearAllGems()
+		for p, _s in _playerStats do
+			if p.Parent == Players and p ~= player then
+				self.Server:_initPlayerStats(p)
+				CombatService:ResetPlayer(p)
+				self.Server:_syncStats(p)
+				self.Server:_respawnPlayer(p)
+			end
+		end
+		self.Server:_setState("WaitingForPlayers")
+		task.delay(1, function()
+			self.Server:StartGame()
+		end)
+	end
+	return true
 end
 
 -------------------------------------------------
@@ -639,9 +714,20 @@ function GameService:KnitStart()
 		self:_regenLoop()
 	end)
 
-	-- XP gem pickup loop
+	-- XP gem pickup + game timer loop
+	local _lastTimerTick = 0
 	RunService.Heartbeat:Connect(function(dt: number)
 		self:_updateXPGems(dt)
+
+		-- Update game timer
+		if _running and _state == "Wave" then
+			_gameElapsed = tick() - _gameStartTime
+			local now = tick()
+			if (now - _lastTimerTick) >= 1 then
+				_lastTimerTick = now
+				self.Client.GameTimerTick:FireAll(math.floor(_gameElapsed))
+			end
+		end
 	end)
 end
 

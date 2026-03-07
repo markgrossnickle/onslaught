@@ -29,13 +29,14 @@ GameConfig.Player = {
 	RespawnDelay = 3,
 	BaseWalkSpeed = 16,
 	InvincibilityTime = 0.5,
-	BaseMagnetRange = 15, -- studs to start pulling XP gems
+	BaseMagnetRange = 15,
 }
 
 -- Enemies
 GameConfig.Enemies = {
 	SpawnDistance = 90,
 	SpawnHeight = 3,
+	MaxConcurrent = 200,
 
 	Types = {
 		Grunt = {
@@ -68,15 +69,52 @@ GameConfig.Enemies = {
 			Size = Vector3.new(3, 4, 3),
 			XPValue = 15,
 		},
+		Runner = {
+			Health = 25,
+			Speed = 26,
+			Damage = 8,
+			AttackRange = 4,
+			AttackCooldown = 0.6,
+			Color = Color3.fromRGB(255, 60, 60),
+			Size = Vector3.new(2, 3, 2),
+			XPValue = 8,
+		},
+		Tank = {
+			Health = 400,
+			Speed = 6,
+			Damage = 40,
+			AttackRange = 7,
+			AttackCooldown = 2.0,
+			Color = Color3.fromRGB(120, 50, 180),
+			Size = Vector3.new(8, 9, 7),
+			XPValue = 50,
+		},
+		Boss = {
+			Health = 2000,
+			Speed = 7,
+			Damage = 50,
+			AttackRange = 8,
+			AttackCooldown = 1.5,
+			Color = Color3.fromRGB(255, 180, 30),
+			Size = Vector3.new(12, 14, 10),
+			XPValue = 200,
+		},
 	},
+
+	-- Time-based introduction (seconds of game time)
+	IntroTimes = {
+		Runner = 60,
+		Tank = 120,
+	},
+	BossInterval = 60, -- spawn a boss every N seconds
+	BossStartTime = 120, -- first boss at this time
 }
 
 -- Waves
 GameConfig.Waves = {
-	IntermissionTime = 5, -- shorter, no shop anymore
+	IntermissionTime = 5,
 	BaseEnemyCount = 5,
 	EnemiesPerWave = 3,
-	MaxConcurrentEnemies = 40,
 	SpawnInterval = 1.0,
 
 	BruteIntroWave = 3,
@@ -85,6 +123,10 @@ GameConfig.Waves = {
 	HealthScaling = 0.08,
 	DamageScaling = 0.05,
 	SpeedScaling = 0.02,
+
+	-- Spawn rate acceleration: spawn interval decreases over time
+	MinSpawnInterval = 0.3,
+	SpawnIntervalDecayPerWave = 0.05,
 }
 
 -- Auto-Attack Weapons
@@ -93,10 +135,10 @@ GameConfig.Weapons = {
 		Name = "Orbiter",
 		Damage = 12,
 		OrbitRadius = 8,
-		OrbitSpeed = 3.0, -- radians per second
+		OrbitSpeed = 3.0,
 		SphereSize = 1.8,
 		Color = Color3.fromRGB(100, 180, 255),
-		HitCooldown = 0.5, -- per-enemy cooldown
+		HitCooldown = 0.5,
 		InitialCount = 2,
 	},
 	Projectile = {
@@ -107,7 +149,24 @@ GameConfig.Weapons = {
 		BulletSize = Vector3.new(0.8, 0.8, 1.6),
 		Color = Color3.fromRGB(255, 220, 50),
 		Range = 60,
-		Pierce = 1, -- how many enemies one bullet hits
+		Pierce = 1,
+	},
+	Lightning = {
+		Name = "Lightning",
+		Damage = 35,
+		Range = 25,
+		FireInterval = 2.0,
+		ChainCount = 1, -- how many targets it chains to
+		ChainRange = 15, -- range for chain jumps
+		BeamColor = Color3.fromRGB(150, 120, 255),
+		BeamDuration = 0.2,
+	},
+	Aura = {
+		Name = "Aura",
+		Damage = 5, -- per tick
+		Radius = 10,
+		TickInterval = 0.5,
+		Color = Color3.fromRGB(255, 100, 100),
 	},
 }
 
@@ -116,8 +175,8 @@ GameConfig.XPGems = {
 	Size = Vector3.new(1.2, 1.2, 1.2),
 	Color = Color3.fromRGB(80, 255, 120),
 	GlowColor = Color3.fromRGB(120, 255, 160),
-	MagnetSpeed = 60, -- studs/sec when being pulled
-	Lifetime = 30, -- seconds before despawn
+	MagnetSpeed = 60,
+	Lifetime = 30,
 }
 
 -- XP / Leveling
@@ -129,13 +188,27 @@ GameConfig.XP = {
 
 -- Level-Up Upgrade Cards
 GameConfig.UpgradeCards = {
-	CardsOffered = 3, -- number of cards to pick from
+	CardsOffered = 3,
 
 	Options = {
 		{
 			Id = "NewProjectile",
 			Name = "Projectile",
 			Description = "Gain auto-firing projectile weapon",
+			MaxStacks = 1,
+			Type = "Weapon",
+		},
+		{
+			Id = "NewLightning",
+			Name = "Lightning",
+			Description = "Zap nearest enemy with chaining beam",
+			MaxStacks = 1,
+			Type = "Weapon",
+		},
+		{
+			Id = "NewAura",
+			Name = "Damage Aura",
+			Description = "Constant AoE damage ring around you",
 			MaxStacks = 1,
 			Type = "Weapon",
 		},
@@ -197,13 +270,37 @@ GameConfig.UpgradeCards = {
 			RequiresWeapon = "Projectile",
 			Type = "WeaponUpgrade",
 		},
+		{
+			Id = "LightningChain",
+			Name = "Chain +1",
+			Description = "Lightning chains to one more enemy",
+			MaxStacks = 4,
+			RequiresWeapon = "Lightning",
+			Type = "WeaponUpgrade",
+		},
+		{
+			Id = "AuraRadius",
+			Name = "Aura Radius +30%",
+			Description = "Damage aura covers more area",
+			MaxStacks = 5,
+			RequiresWeapon = "Aura",
+			Type = "WeaponUpgrade",
+		},
+		{
+			Id = "AuraDamage",
+			Name = "Aura Damage +40%",
+			Description = "Damage aura hits harder",
+			MaxStacks = 5,
+			RequiresWeapon = "Aura",
+			Type = "WeaponUpgrade",
+		},
 	},
 }
 
 -- Camera
 GameConfig.Camera = {
-	Distance = 50, -- studs above player
-	Angle = 60, -- degrees from horizontal (60 = mostly top-down)
+	Distance = 50,
+	Angle = 60,
 	FieldOfView = 50,
 }
 

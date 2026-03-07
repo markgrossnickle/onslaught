@@ -15,6 +15,8 @@ local CombatService = Knit.CreateService({
 	Client = {
 		OrbiterSync = Knit.CreateSignal(), -- sync orbiter positions for VFX
 		ProjectileFired = Knit.CreateSignal(),
+		LightningFired = Knit.CreateSignal(), -- (startPos, endPos, chainPositions)
+		AuraSync = Knit.CreateSignal(), -- (playerPos, radius)
 	},
 })
 
@@ -34,14 +36,31 @@ export type WeaponState = {
 	ProjectileFireInterval: number,
 	ProjectilePierce: number,
 	LastProjectileTime: number,
+
+	HasLightning: boolean,
+	LightningDamage: number,
+	LightningRange: number,
+	LightningFireInterval: number,
+	LightningChainCount: number,
+	LightningChainRange: number,
+	LastLightningTime: number,
+
+	HasAura: boolean,
+	AuraDamage: number,
+	AuraRadius: number,
+	AuraTickInterval: number,
+	LastAuraTickTime: number,
 }
 
 local _weaponStates: { [Player]: WeaponState } = {}
 local _orbiterParts: { [Player]: { BasePart } } = {}
+local _auraParts: { [Player]: BasePart } = {}
 local _projectileFolder: Folder = nil :: any
 
 function CombatService:_initWeaponState(player: Player): WeaponState
 	local cfg = GameConfig.Weapons.Orbiter
+	local lightCfg = GameConfig.Weapons.Lightning
+	local auraCfg = GameConfig.Weapons.Aura
 	local state: WeaponState = {
 		HasOrbiter = true,
 		OrbiterCount = cfg.InitialCount,
@@ -54,6 +73,20 @@ function CombatService:_initWeaponState(player: Player): WeaponState
 		ProjectileFireInterval = GameConfig.Weapons.Projectile.FireInterval,
 		ProjectilePierce = GameConfig.Weapons.Projectile.Pierce,
 		LastProjectileTime = 0,
+
+		HasLightning = false,
+		LightningDamage = lightCfg.Damage,
+		LightningRange = lightCfg.Range,
+		LightningFireInterval = lightCfg.FireInterval,
+		LightningChainCount = lightCfg.ChainCount,
+		LightningChainRange = lightCfg.ChainRange,
+		LastLightningTime = 0,
+
+		HasAura = false,
+		AuraDamage = auraCfg.Damage,
+		AuraRadius = auraCfg.Radius,
+		AuraTickInterval = auraCfg.TickInterval,
+		LastAuraTickTime = 0,
 	}
 	_weaponStates[player] = state
 	return state
@@ -79,6 +112,18 @@ function CombatService:ApplyWeaponUpgrade(player: Player, upgradeId: string)
 		ws.ProjectilePierce += 1
 	elseif upgradeId == "ProjectileSpeed" then
 		ws.ProjectileFireInterval *= 0.8
+	elseif upgradeId == "NewLightning" then
+		ws.HasLightning = true
+	elseif upgradeId == "LightningChain" then
+		ws.LightningChainCount += 1
+	elseif upgradeId == "NewAura" then
+		ws.HasAura = true
+		self:_rebuildAura(player)
+	elseif upgradeId == "AuraRadius" then
+		ws.AuraRadius *= 1.3
+		self:_rebuildAura(player)
+	elseif upgradeId == "AuraDamage" then
+		ws.AuraDamage = math.floor(ws.AuraDamage * 1.4)
 	end
 end
 
@@ -94,6 +139,8 @@ function CombatService:UpdateDamage(player: Player)
 	end
 	ws.OrbiterDamage = math.floor(GameConfig.Weapons.Orbiter.Damage * stats.DamageMultiplier)
 	ws.ProjectileDamage = math.floor(GameConfig.Weapons.Projectile.Damage * stats.DamageMultiplier)
+	ws.LightningDamage = math.floor(GameConfig.Weapons.Lightning.Damage * stats.DamageMultiplier)
+	ws.AuraDamage = math.floor(GameConfig.Weapons.Aura.Damage * stats.DamageMultiplier)
 end
 
 -------------------------------------------------
@@ -338,6 +385,181 @@ function CombatService:_updateProjectiles(dt: number)
 end
 
 -------------------------------------------------
+-- LIGHTNING
+-------------------------------------------------
+
+function CombatService:_updateLightning(_dt: number)
+	local now = tick()
+
+	for player, ws in _weaponStates do
+		if not ws.HasLightning then
+			continue
+		end
+
+		local stats = GameService:GetPlayerStats(player)
+		if not stats or stats.Health <= 0 then
+			continue
+		end
+
+		if (now - ws.LastLightningTime) < ws.LightningFireInterval then
+			continue
+		end
+
+		local char = player.Character
+		if not char then
+			continue
+		end
+		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if not root then
+			continue
+		end
+
+		local pos = root.Position
+
+		-- Find nearest enemy
+		local closestEnemy: any = nil
+		local closestDist = ws.LightningRange
+
+		local nearbyEnemies = EnemyService:GetEnemiesInRadius(pos, ws.LightningRange)
+		for _, enemy in nearbyEnemies do
+			if enemy.Alive and enemy.Model.PrimaryPart then
+				local d = (enemy.Model.PrimaryPart.Position - pos).Magnitude
+				if d < closestDist then
+					closestDist = d
+					closestEnemy = enemy
+				end
+			end
+		end
+
+		if not closestEnemy then
+			continue
+		end
+
+		ws.LastLightningTime = now
+
+		-- Damage primary target
+		local targetPos = closestEnemy.Model.PrimaryPart.Position
+		EnemyService:DamageEnemy(closestEnemy, ws.LightningDamage, player)
+
+		-- Build chain positions for VFX
+		local chainPositions: { Vector3 } = { targetPos }
+		local hitEnemies: { [any]: boolean } = { [closestEnemy] = true }
+		local lastChainPos = targetPos
+
+		-- Chain to additional enemies
+		for _ = 1, ws.LightningChainCount do
+			local chainTarget: any = nil
+			local chainDist = ws.LightningChainRange
+
+			local chainNearby = EnemyService:GetEnemiesInRadius(lastChainPos, ws.LightningChainRange)
+			for _, enemy in chainNearby do
+				if enemy.Alive and not hitEnemies[enemy] and enemy.Model.PrimaryPart then
+					local d = (enemy.Model.PrimaryPart.Position - lastChainPos).Magnitude
+					if d < chainDist then
+						chainDist = d
+						chainTarget = enemy
+					end
+				end
+			end
+
+			if not chainTarget then
+				break
+			end
+
+			hitEnemies[chainTarget] = true
+			local chainPos = chainTarget.Model.PrimaryPart.Position
+			table.insert(chainPositions, chainPos)
+			EnemyService:DamageEnemy(chainTarget, ws.LightningDamage, player)
+			lastChainPos = chainPos
+		end
+
+		-- Notify clients for VFX
+		self.Client.LightningFired:FireAll(pos, targetPos, chainPositions)
+	end
+end
+
+-------------------------------------------------
+-- AURA
+-------------------------------------------------
+
+function CombatService:_rebuildAura(player: Player)
+	-- Destroy old aura part
+	local old = _auraParts[player]
+	if old and old.Parent then
+		old:Destroy()
+	end
+
+	local ws = _weaponStates[player]
+	if not ws or not ws.HasAura then
+		_auraParts[player] = nil
+		return
+	end
+
+	local auraCfg = GameConfig.Weapons.Aura
+	local ring = Instance.new("Part")
+	ring.Name = "AuraRing"
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Size = Vector3.new(0.3, ws.AuraRadius * 2, ws.AuraRadius * 2)
+	ring.Color = auraCfg.Color
+	ring.Material = Enum.Material.Neon
+	ring.Transparency = 0.7
+	ring.Anchored = true
+	ring.CanCollide = false
+	ring.CastShadow = false
+	ring.Position = Vector3.new(0, -100, 0) -- offscreen until positioned
+	ring.Parent = workspace
+
+	_auraParts[player] = ring
+end
+
+function CombatService:_updateAura(_dt: number)
+	local now = tick()
+
+	for player, ws in _weaponStates do
+		if not ws.HasAura then
+			continue
+		end
+
+		local char = player.Character
+		if not char then
+			continue
+		end
+		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if not root then
+			continue
+		end
+
+		local stats = GameService:GetPlayerStats(player)
+		if not stats or stats.Health <= 0 then
+			continue
+		end
+
+		local pos = root.Position
+
+		-- Position the aura ring at the player
+		local ring = _auraParts[player]
+		if ring and ring.Parent then
+			ring.Size = Vector3.new(0.3, ws.AuraRadius * 2, ws.AuraRadius * 2)
+			-- Cylinder needs rotation so it lies flat on the ground
+			ring.CFrame = CFrame.new(pos.X, pos.Y - 1, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
+		end
+
+		-- Tick damage
+		if (now - ws.LastAuraTickTime) < ws.AuraTickInterval then
+			continue
+		end
+		ws.LastAuraTickTime = now
+
+		local enemies = EnemyService:GetEnemiesInRadius(pos, ws.AuraRadius)
+		for _, enemy in enemies do
+			if enemy.Alive then
+				EnemyService:DamageEnemy(enemy, ws.AuraDamage, player)
+			end
+		end
+	end
+end
+
+-------------------------------------------------
 -- LIFECYCLE
 -------------------------------------------------
 
@@ -351,6 +573,10 @@ function CombatService:KnitInit()
 
 		player.CharacterAdded:Connect(function(_character)
 			self:_rebuildOrbiters(player)
+			local ws = _weaponStates[player]
+			if ws and ws.HasAura then
+				self:_rebuildAura(player)
+			end
 		end)
 	end)
 
@@ -365,6 +591,14 @@ function CombatService:KnitInit()
 			end
 		end
 		_orbiterParts[player] = nil
+
+		-- Clean up aura
+		local aura = _auraParts[player]
+		if aura and aura.Parent then
+			aura:Destroy()
+		end
+		_auraParts[player] = nil
+
 		_weaponStates[player] = nil
 	end)
 end
@@ -372,6 +606,12 @@ end
 function CombatService:ResetPlayer(player: Player)
 	self:_initWeaponState(player)
 	self:_rebuildOrbiters(player)
+	-- Destroy old aura
+	local oldAura = _auraParts[player]
+	if oldAura and oldAura.Parent then
+		oldAura:Destroy()
+	end
+	_auraParts[player] = nil
 end
 
 function CombatService:KnitStart()
@@ -381,6 +621,8 @@ function CombatService:KnitStart()
 	RunService.Heartbeat:Connect(function(dt: number)
 		self:_updateOrbiters(dt)
 		self:_updateProjectiles(dt)
+		self:_updateLightning(dt)
+		self:_updateAura(dt)
 	end)
 end
 
