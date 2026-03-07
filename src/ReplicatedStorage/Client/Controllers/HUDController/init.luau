@@ -353,6 +353,35 @@ function HUDController:KnitStart()
 		_stateText.Text = `Next wave in {seconds}...`
 		_stateText.TextTransparency = 0
 	end)
+
+	-- Damage vignette
+	GameService.PlayerDamaged:Connect(function(_damage: number)
+		self:_showDamageVignette()
+	end)
+end
+
+function HUDController:_showDamageVignette()
+	local vignette = Instance.new("Frame")
+	vignette.Name = "DamageVignette"
+	vignette.Size = UDim2.new(1, 0, 1, 0)
+	vignette.Position = UDim2.new(0, 0, 0, 0)
+	vignette.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+	vignette.BackgroundTransparency = 0.7
+	vignette.BorderSizePixel = 0
+	vignette.ZIndex = 100
+	vignette.Parent = _screenGui
+
+	task.spawn(function()
+		local elapsed = 0
+		local duration = 0.3
+		local RunService = game:GetService("RunService")
+		while elapsed < duration do
+			local dt = RunService.RenderStepped:Wait()
+			elapsed += dt
+			vignette.BackgroundTransparency = 0.7 + (elapsed / duration) * 0.3
+		end
+		vignette:Destroy()
+	end)
 end
 
 return HUDController

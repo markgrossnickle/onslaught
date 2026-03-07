@@ -15,6 +15,7 @@ local GameService = Knit.CreateService({
 		WaveChanged = Knit.CreateSignal(),
 		IntermissionTick = Knit.CreateSignal(),
 		PlayerStatsChanged = Knit.CreateSignal(),
+		PlayerDamaged = Knit.CreateSignal(),
 	},
 
 	-- Signals
@@ -41,6 +42,7 @@ export type PlayerStats = {
 	UpgradePoints: number,
 	Upgrades: { [string]: number },
 	Kills: number,
+	LastDamageTime: number,
 }
 
 local _playerStats: { [Player]: PlayerStats } = {}
@@ -154,6 +156,7 @@ function GameService:_initPlayerStats(player: Player): PlayerStats
 		UpgradePoints = 0,
 		Upgrades = {},
 		Kills = 0,
+		LastDamageTime = 0,
 	}
 	_playerStats[player] = stats
 	return stats
@@ -184,7 +187,15 @@ function GameService:DamagePlayer(player: Player, damage: number)
 		return
 	end
 
+	-- Invincibility frames
+	local now = tick()
+	if (now - stats.LastDamageTime) < GameConfig.Player.InvincibilityTime then
+		return
+	end
+	stats.LastDamageTime = now
+
 	stats.Health = math.max(0, stats.Health - damage)
+	self.Client.PlayerDamaged:Fire(player, damage)
 	self:_syncStats(player)
 
 	if stats.Health <= 0 then

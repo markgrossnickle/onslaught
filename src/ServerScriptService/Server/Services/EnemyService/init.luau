@@ -88,6 +88,29 @@ function EnemyService:_createEnemyModel(enemyType: string, position: Vector3): M
 	end
 	eye2.Parent = model
 
+	-- Health bar billboard
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "HealthBar"
+	billboard.Size = UDim2.new(0, 60, 0, 8)
+	billboard.StudsOffset = Vector3.new(0, cfg.Size.Y / 2 + 1.5, 0)
+	billboard.AlwaysOnTop = true
+	billboard.Adornee = body
+	billboard.Parent = model
+
+	local bgBar = Instance.new("Frame")
+	bgBar.Name = "Background"
+	bgBar.Size = UDim2.new(1, 0, 1, 0)
+	bgBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+	bgBar.BorderSizePixel = 0
+	bgBar.Parent = billboard
+
+	local fillBar = Instance.new("Frame")
+	fillBar.Name = "Fill"
+	fillBar.Size = UDim2.new(1, 0, 1, 0)
+	fillBar.BackgroundColor3 = Color3.fromRGB(200, 30, 30)
+	fillBar.BorderSizePixel = 0
+	fillBar.Parent = bgBar
+
 	-- BodyMovers for AI movement
 	local attachment = Instance.new("Attachment")
 	attachment.Name = "MoveAttachment"
@@ -169,8 +192,30 @@ function EnemyService:DamageEnemy(enemy: EnemyData, damage: number, attacker: Pl
 	end
 	self.Client.EnemyDamaged:FireAll(enemy.Model, damage, pos)
 
+	-- Update health bar
+	self:_updateHealthBar(enemy)
+
 	if enemy.Health <= 0 then
 		self:_killEnemy(enemy, attacker)
+	end
+end
+
+function EnemyService:_updateHealthBar(enemy: EnemyData)
+	if not enemy.Model then
+		return
+	end
+	local billboard = enemy.Model:FindFirstChild("HealthBar") :: BillboardGui?
+	if not billboard then
+		return
+	end
+	local bg = billboard:FindFirstChild("Background")
+	if not bg then
+		return
+	end
+	local fill = bg:FindFirstChild("Fill") :: Frame?
+	if fill then
+		local pct = math.clamp(enemy.Health / enemy.MaxHealth, 0, 1)
+		fill.Size = UDim2.new(pct, 0, 1, 0)
 	end
 end
 
