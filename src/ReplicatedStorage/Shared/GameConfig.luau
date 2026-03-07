@@ -296,6 +296,163 @@ GameConfig.Weapons = {
 		TickInterval = 0.5,
 		Color = Color3.fromRGB(255, 100, 100),
 	},
+	VoidWhip = {
+		Name = "Void Whip",
+		Damage = 18,
+		ArcAngle = 120, -- degrees
+		Range = 12,
+		FireInterval = 1.2,
+		Color = Color3.fromRGB(180, 40, 255),
+	},
+	ShadowDaggers = {
+		Name = "Shadow Daggers",
+		Damage = 8, -- per dagger
+		DaggerCount = 3,
+		SpreadAngle = 30, -- degrees between daggers
+		Speed = 70,
+		Range = 50,
+		FireInterval = 0.8,
+		BulletSize = Vector3.new(0.4, 0.4, 1.2),
+		Color = Color3.fromRGB(80, 30, 120),
+	},
+	GravityWell = {
+		Name = "Gravity Well",
+		Damage = 5, -- per tick
+		Radius = 15,
+		Duration = 4,
+		PullSpeed = 20,
+		FireInterval = 8,
+		Color = Color3.fromRGB(40, 0, 80),
+	},
+	PlagueCloud = {
+		Name = "Plague Cloud",
+		Damage = 4, -- per tick
+		Radius = 12,
+		TickInterval = 0.5,
+		SlowPercent = 0.20,
+		Color = Color3.fromRGB(80, 200, 40),
+	},
+	VoidMissiles = {
+		Name = "Void Missiles",
+		Damage = 22, -- per missile
+		MissileCount = 2,
+		Speed = 40,
+		TurnSpeed = 8, -- radians/s homing
+		Range = 80,
+		FireInterval = 2.5,
+		BulletSize = Vector3.new(0.6, 0.6, 1.4),
+		Color = Color3.fromRGB(160, 30, 200),
+	},
+	SpectralScythe = {
+		Name = "Spectral Scythe",
+		DamageOut = 15,
+		DamageReturn = 20,
+		Speed = 50,
+		Range = 35, -- max outward distance before return
+		FireInterval = 2.0,
+		Size = Vector3.new(3, 0.3, 3),
+		Color = Color3.fromRGB(200, 200, 255),
+	},
+	SoulDrain = {
+		Name = "Soul Drain",
+		Damage = 12, -- per second
+		Range = 20,
+		HealPercent = 0.20,
+		TickInterval = 0.25,
+		BeamColor = Color3.fromRGB(100, 255, 100),
+	},
+	Shockwave = {
+		Name = "Shockwave",
+		Damage = 25,
+		Radius = 18,
+		KnockbackForce = 50,
+		FireInterval = 3.5,
+		Color = Color3.fromRGB(255, 180, 60),
+	},
+}
+
+-- Weapon level scaling (levels 1-8)
+-- Each upgrade card for a weapon increments its level
+GameConfig.WeaponLevels = {
+	MaxLevel = 8,
+	-- Per-level bonuses (multiplicative with base)
+	DamagePerLevel = 0.15, -- +15% damage per level (levels 1-3 focus)
+	CooldownPerLevel = 0.10, -- -10% cooldown per level (levels 4-5 focus)
+	AreaPerLevel = 0.20, -- +20% area/range per level (levels 6-7 focus)
+	Level8CritChance = 0.15, -- 15% crit chance at level 8
+}
+
+-- Weapon Evolutions (both ingredients must be at max level)
+GameConfig.Evolutions = {
+	{
+		Id = "VoidNova",
+		Name = "Void Nova",
+		Description = "Massive pulsing explosion ring with knockback",
+		Ingredients = { "Aura", "Shockwave" },
+		Damage = 40,
+		Radius = 20,
+		TickInterval = 0.5,
+		KnockbackForce = 40,
+		Color = Color3.fromRGB(255, 60, 60),
+	},
+	{
+		Id = "StormOfBlades",
+		Name = "Storm of Blades",
+		Description = "Spinning dagger ring that also fires outward",
+		Ingredients = { "ShadowDaggers", "Orbiter" },
+		OrbiterCount = 8,
+		DaggerFireInterval = 0.6,
+		DaggerCount = 3,
+		Damage = 15,
+		Color = Color3.fromRGB(120, 60, 200),
+	},
+	{
+		Id = "DeathBeam",
+		Name = "Death Beam",
+		Description = "Drain beam chains across 4 enemies, heals 30%",
+		Ingredients = { "SoulDrain", "Lightning" },
+		Damage = 15, -- per second per target
+		ChainCount = 4,
+		HealPercent = 0.30,
+		Range = 25,
+		BeamColor = Color3.fromRGB(80, 255, 150),
+	},
+	{
+		Id = "PlagueScythe",
+		Name = "Plague Scythe",
+		Description = "Scythe leaves toxic trail, cloud applies scythe damage",
+		Ingredients = { "PlagueCloud", "SpectralScythe" },
+		DotDamage = 20,
+		ScytheDamage = 25,
+		CloudRadius = 14,
+		Color = Color3.fromRGB(120, 220, 60),
+	},
+	{
+		Id = "Singularity",
+		Name = "Singularity",
+		Description = "Black hole that pulls enemies and launches missiles",
+		Ingredients = { "GravityWell", "VoidMissiles" },
+		PullRadius = 20,
+		CrushDamage = 10,
+		MissileCount = 8,
+		MissileDamage = 15,
+		Duration = 5,
+		FireInterval = 10,
+		Color = Color3.fromRGB(20, 0, 40),
+	},
+	{
+		Id = "AbyssalLash",
+		Name = "Abyssal Lash",
+		Description = "Whip cracks fire explosive projectiles on each hit",
+		Ingredients = { "VoidWhip", "Projectile" },
+		WhipDamage = 30,
+		ArcAngle = 120,
+		Range = 14,
+		ProjectilesPerHit = 2,
+		ProjectileDamage = 20,
+		FireInterval = 1.0,
+		Color = Color3.fromRGB(220, 60, 255),
+	},
 }
 
 -- XP Gems
@@ -423,7 +580,143 @@ GameConfig.UpgradeCards = {
 			RequiresWeapon = "Aura",
 			Type = "WeaponUpgrade",
 		},
+		-- New weapon acquisition cards
+		{
+			Id = "NewVoidWhip",
+			Name = "Void Whip",
+			Description = "Crack a whip in a 120° arc",
+			MaxStacks = 1,
+			Type = "Weapon",
+		},
+		{
+			Id = "NewShadowDaggers",
+			Name = "Shadow Daggers",
+			Description = "Fire 3 daggers in a spread pattern",
+			MaxStacks = 1,
+			Type = "Weapon",
+		},
+		{
+			Id = "NewGravityWell",
+			Name = "Gravity Well",
+			Description = "Drop a gravity orb that pulls and damages enemies",
+			MaxStacks = 1,
+			Type = "Weapon",
+		},
+		{
+			Id = "NewPlagueCloud",
+			Name = "Plague Cloud",
+			Description = "Toxic cloud follows you, slowing and damaging enemies",
+			MaxStacks = 1,
+			Type = "Weapon",
+		},
+		{
+			Id = "NewVoidMissiles",
+			Name = "Void Missiles",
+			Description = "Fire 2 homing missiles at different targets",
+			MaxStacks = 1,
+			Type = "Weapon",
+		},
+		{
+			Id = "NewSpectralScythe",
+			Name = "Spectral Scythe",
+			Description = "Throw a boomerang scythe that returns to you",
+			MaxStacks = 1,
+			Type = "Weapon",
+		},
+		{
+			Id = "NewSoulDrain",
+			Name = "Soul Drain",
+			Description = "Beam that drains enemy HP and heals you",
+			MaxStacks = 1,
+			Type = "Weapon",
+		},
+		{
+			Id = "NewShockwave",
+			Name = "Shockwave",
+			Description = "Stomp the ground with a radial shockwave burst",
+			MaxStacks = 1,
+			Type = "Weapon",
+		},
+		-- New weapon upgrade cards (generic level-up per weapon)
+		{
+			Id = "VoidWhipUp",
+			Name = "Whip Power Up",
+			Description = "Increase Void Whip damage, speed, and range",
+			MaxStacks = 7,
+			RequiresWeapon = "VoidWhip",
+			Type = "WeaponUpgrade",
+		},
+		{
+			Id = "ShadowDaggersUp",
+			Name = "Dagger Power Up",
+			Description = "More daggers, faster fire, longer range",
+			MaxStacks = 7,
+			RequiresWeapon = "ShadowDaggers",
+			Type = "WeaponUpgrade",
+		},
+		{
+			Id = "GravityWellUp",
+			Name = "Gravity Power Up",
+			Description = "Stronger pull, more damage, larger radius",
+			MaxStacks = 7,
+			RequiresWeapon = "GravityWell",
+			Type = "WeaponUpgrade",
+		},
+		{
+			Id = "PlagueCloudUp",
+			Name = "Plague Power Up",
+			Description = "Larger cloud, more damage, stronger slow",
+			MaxStacks = 7,
+			RequiresWeapon = "PlagueCloud",
+			Type = "WeaponUpgrade",
+		},
+		{
+			Id = "VoidMissilesUp",
+			Name = "Missile Power Up",
+			Description = "More missiles, faster fire, higher damage",
+			MaxStacks = 7,
+			RequiresWeapon = "VoidMissiles",
+			Type = "WeaponUpgrade",
+		},
+		{
+			Id = "SpectralScytheUp",
+			Name = "Scythe Power Up",
+			Description = "Faster scythe, more damage, longer range",
+			MaxStacks = 7,
+			RequiresWeapon = "SpectralScythe",
+			Type = "WeaponUpgrade",
+		},
+		{
+			Id = "SoulDrainUp",
+			Name = "Drain Power Up",
+			Description = "Stronger drain, more healing, longer range",
+			MaxStacks = 7,
+			RequiresWeapon = "SoulDrain",
+			Type = "WeaponUpgrade",
+		},
+		{
+			Id = "ShockwaveUp",
+			Name = "Shockwave Power Up",
+			Description = "Bigger radius, more damage, faster cooldown",
+			MaxStacks = 7,
+			RequiresWeapon = "Shockwave",
+			Type = "WeaponUpgrade",
+		},
 	},
+}
+
+-- Weapon unlock requirements (tracked in PlayerData.UnlockedWeapons)
+GameConfig.WeaponUnlocks = {
+	-- Default pool (available without unlock)
+	VoidWhip = { Type = "default" },
+	ShadowDaggers = { Type = "default" },
+	-- Achievement-based unlocks
+	GravityWell = { Type = "kills", Amount = 500 },
+	PlagueCloud = { Type = "level", Amount = 15 },
+	VoidMissiles = { Type = "bossKill" },
+	SpectralScythe = { Type = "survivalTime", Amount = 600 },
+	SoulDrain = { Type = "gemsCollected", Amount = 1000 },
+	Shockwave = { Type = "killsInRun", Amount = 50 },
 }
 
 -- Camera

@@ -860,6 +860,207 @@ function CombatController:KnitStart()
 			self:_removeShieldBubble()
 		end
 	end)
+
+	-- New weapon VFX
+	CombatService.WhipSlash:Connect(function(position: Vector3, direction: Vector3, arcAngle: number)
+		self:_playWhipSlash(position, direction, arcAngle)
+	end)
+
+	CombatService.DaggersFired:Connect(function(_position: Vector3, _directions: { Vector3 })
+		-- Daggers use shared projectile system, no extra VFX needed
+	end)
+
+	CombatService.GravityWellPlaced:Connect(function(position: Vector3, radius: number, duration: number)
+		self:_playGravityWellVFX(position, radius, duration)
+	end)
+
+	CombatService.ShockwaveBlast:Connect(function(position: Vector3, radius: number)
+		self:_playShockwaveVFX(position, radius)
+	end)
+
+	CombatService.SoulDrainBeam:Connect(function(startPos: Vector3, endPos: Vector3)
+		self:_playSoulDrainBeam(startPos, endPos)
+	end)
+
+	CombatService.ScytheFired:Connect(function(_position: Vector3, _direction: Vector3)
+		-- Scythe is a visible Part already, no extra VFX
+	end)
+
+	CombatService.MissilesFired:Connect(function(_positions: { Vector3 }, _directions: { Vector3 })
+		-- Missiles are visible Parts, no extra VFX
+	end)
+
+	CombatService.EvolutionActivated:Connect(function(_evolutionId: string)
+		self:_playEvolutionVFX()
+	end)
+end
+
+-------------------------------------------------
+-- NEW WEAPON VFX
+-------------------------------------------------
+
+function CombatController:_playWhipSlash(position: Vector3, direction: Vector3, _arcAngle: number)
+	-- Arc slash visual: thin curved Part
+	local slash = Instance.new("Part")
+	slash.Name = "WhipSlash"
+	slash.Size = Vector3.new(12, 0.3, 2)
+	slash.Color = GameConfig.Weapons.VoidWhip.Color
+	slash.Material = Enum.Material.Neon
+	slash.Anchored = true
+	slash.CanCollide = false
+	slash.CastShadow = false
+	slash.Transparency = 0.2
+	slash.CFrame = CFrame.lookAt(position + direction * 6, position + direction * 7)
+	slash.Parent = workspace
+
+	TweenService:Create(slash, TweenInfo.new(0.2), { Transparency = 1, Size = Vector3.new(14, 0.3, 4) }):Play()
+	task.delay(0.2, function()
+		slash:Destroy()
+	end)
+end
+
+function CombatController:_playGravityWellVFX(position: Vector3, radius: number, duration: number)
+	local well = Instance.new("Part")
+	well.Name = "GravityWell"
+	well.Shape = Enum.PartType.Ball
+	well.Size = Vector3.one * 3
+	well.Color = GameConfig.Weapons.GravityWell.Color
+	well.Material = Enum.Material.ForceField
+	well.Anchored = true
+	well.CanCollide = false
+	well.CastShadow = false
+	well.Transparency = 0.3
+	well.Position = position
+	well.Parent = workspace
+
+	-- Pull ring visual
+	local ring = Instance.new("Part")
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Size = Vector3.new(0.3, radius * 2, radius * 2)
+	ring.Color = GameConfig.Weapons.GravityWell.Color
+	ring.Material = Enum.Material.Neon
+	ring.Anchored = true
+	ring.CanCollide = false
+	ring.CastShadow = false
+	ring.Transparency = 0.6
+	ring.CFrame = CFrame.new(position.X, position.Y - 0.5, position.Z) * CFrame.Angles(0, 0, math.rad(90))
+	ring.Parent = workspace
+
+	task.spawn(function()
+		local elapsed = 0
+		while elapsed < duration do
+			local dt = RunService.RenderStepped:Wait()
+			elapsed += dt
+			local pulse = math.sin(elapsed * 4) * 0.3
+			well.Size = Vector3.one * (3 + pulse)
+			well.Transparency = 0.3 + pulse * 0.1
+			ring.Transparency = 0.5 + math.sin(elapsed * 3) * 0.2
+		end
+		TweenService:Create(well, TweenInfo.new(0.3), { Transparency = 1, Size = Vector3.one }):Play()
+		TweenService:Create(ring, TweenInfo.new(0.3), { Transparency = 1 }):Play()
+		task.delay(0.3, function()
+			well:Destroy()
+			ring:Destroy()
+		end)
+	end)
+end
+
+function CombatController:_playShockwaveVFX(position: Vector3, radius: number)
+	_cameraShakeTime = 0.3
+
+	local ring = Instance.new("Part")
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Size = Vector3.new(0.5, 4, 4)
+	ring.Color = GameConfig.Weapons.Shockwave.Color
+	ring.Material = Enum.Material.Neon
+	ring.Anchored = true
+	ring.CanCollide = false
+	ring.CastShadow = false
+	ring.Transparency = 0.2
+	ring.CFrame = CFrame.new(position.X, position.Y - 0.5, position.Z) * CFrame.Angles(0, 0, math.rad(90))
+	ring.Parent = workspace
+
+	TweenService:Create(ring, TweenInfo.new(0.3), { Size = Vector3.new(0.5, radius * 2, radius * 2), Transparency = 1 })
+		:Play()
+	task.delay(0.3, function()
+		ring:Destroy()
+	end)
+end
+
+function CombatController:_playSoulDrainBeam(startPos: Vector3, endPos: Vector3)
+	local dist = (endPos - startPos).Magnitude
+	local midPoint = (startPos + endPos) / 2
+
+	local beam = Instance.new("Part")
+	beam.Name = "DrainBeam"
+	beam.Size = Vector3.new(0.3, 0.3, dist)
+	beam.Color = GameConfig.Weapons.SoulDrain.BeamColor
+	beam.Material = Enum.Material.Neon
+	beam.Anchored = true
+	beam.CanCollide = false
+	beam.CastShadow = false
+	beam.CFrame = CFrame.lookAt(midPoint, endPos)
+	beam.Parent = workspace
+
+	TweenService:Create(beam, TweenInfo.new(0.2), { Transparency = 1 }):Play()
+	task.delay(0.2, function()
+		beam:Destroy()
+	end)
+end
+
+function CombatController:_playEvolutionVFX()
+	_cameraShakeTime = 0.5
+
+	local char = Player.Character
+	if not char then
+		return
+	end
+	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then
+		return
+	end
+
+	-- Golden explosion ring
+	local ring = Instance.new("Part")
+	ring.Shape = Enum.PartType.Ball
+	ring.Size = Vector3.one * 5
+	ring.Color = Color3.fromRGB(255, 220, 50)
+	ring.Material = Enum.Material.Neon
+	ring.Anchored = true
+	ring.CanCollide = false
+	ring.CastShadow = false
+	ring.Transparency = 0
+	ring.Position = root.Position
+	ring.Parent = workspace
+
+	TweenService:Create(ring, TweenInfo.new(0.5), { Size = Vector3.one * 30, Transparency = 1 }):Play()
+	task.delay(0.5, function()
+		ring:Destroy()
+	end)
+
+	-- "EVOLVED!" text
+	local PlayerGui2 = Player:WaitForChild("PlayerGui")
+	local hudGui = PlayerGui2:FindFirstChild("OnslaughtHUD") :: ScreenGui?
+	if hudGui then
+		local evoText = Instance.new("TextLabel")
+		evoText.Size = UDim2.new(1, 0, 0, 80)
+		evoText.Position = UDim2.new(0, 0, 0.3, 0)
+		evoText.BackgroundTransparency = 1
+		evoText.Text = "WEAPON EVOLVED!"
+		evoText.TextColor3 = Color3.fromRGB(255, 220, 50)
+		evoText.Font = Enum.Font.GothamBlack
+		evoText.TextSize = 48
+		evoText.TextStrokeTransparency = 0.3
+		evoText.TextStrokeColor3 = Color3.fromRGB(120, 80, 0)
+		evoText.ZIndex = 95
+		evoText.Parent = hudGui
+
+		task.delay(2, function()
+			if evoText.Parent then
+				evoText:Destroy()
+			end
+		end)
+	end
 end
 
 return CombatController

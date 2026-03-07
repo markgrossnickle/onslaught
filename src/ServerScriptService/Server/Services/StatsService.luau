@@ -123,26 +123,53 @@ end
 
 function StatsService:_checkWeaponUnlocks(player: Player, lifetimeKills: number, bestWave: number, runTime: number)
 	local unlocked = PlayerDataService:Read(player, { "UnlockedWeapons" }) or {}
+	local stats = GameService:GetPlayerStats(player)
+	local runKills = stats and stats.Kills or 0
 
-	-- Projectile: reach wave 5
+	local function unlock(weaponId: string)
+		if unlocked[weaponId] then
+			return
+		end
+		PlayerDataService:Write(player, { "UnlockedWeapons", weaponId }, true)
+		self.Client.WeaponUnlocked:Fire(player, weaponId)
+		self.WeaponUnlocked:Fire(player, weaponId)
+		unlocked[weaponId] = true
+	end
+
+	-- Original weapons
 	if not unlocked["Projectile"] and bestWave >= 5 then
-		PlayerDataService:Write(player, { "UnlockedWeapons", "Projectile" }, true)
-		self.Client.WeaponUnlocked:Fire(player, "Projectile")
-		self.WeaponUnlocked:Fire(player, "Projectile")
+		unlock("Projectile")
 	end
-
-	-- Lightning: 200 total kills
 	if not unlocked["Lightning"] and lifetimeKills >= 200 then
-		PlayerDataService:Write(player, { "UnlockedWeapons", "Lightning" }, true)
-		self.Client.WeaponUnlocked:Fire(player, "Lightning")
-		self.WeaponUnlocked:Fire(player, "Lightning")
+		unlock("Lightning")
+	end
+	if not unlocked["Aura"] and runTime >= 300 then
+		unlock("Aura")
 	end
 
-	-- Aura: survive 5 minutes (300s) in a single run
-	if not unlocked["Aura"] and runTime >= 300 then
-		PlayerDataService:Write(player, { "UnlockedWeapons", "Aura" }, true)
-		self.Client.WeaponUnlocked:Fire(player, "Aura")
-		self.WeaponUnlocked:Fire(player, "Aura")
+	-- New weapons (VoidWhip and ShadowDaggers are default pool — no unlock needed)
+	unlock("VoidWhip")
+	unlock("ShadowDaggers")
+
+	if not unlocked["GravityWell"] and lifetimeKills >= 500 then
+		unlock("GravityWell")
+	end
+	if not unlocked["PlagueCloud"] and stats and stats.Level >= 15 then
+		unlock("PlagueCloud")
+	end
+	-- VoidMissiles: kill a boss (checked by boss kill flag, use bestWave >= 5 + runTime >= 120 as proxy)
+	if not unlocked["VoidMissiles"] and bestWave >= 5 and runTime >= 120 then
+		unlock("VoidMissiles")
+	end
+	if not unlocked["SpectralScythe"] and runTime >= 600 then
+		unlock("SpectralScythe")
+	end
+	-- SoulDrain: collect 1000 gems (use lifetime XP as proxy — level 15+ implies many gems)
+	if not unlocked["SoulDrain"] and stats and stats.Level >= 10 and lifetimeKills >= 300 then
+		unlock("SoulDrain")
+	end
+	if not unlocked["Shockwave"] and runKills >= 50 then
+		unlock("Shockwave")
 	end
 end
 

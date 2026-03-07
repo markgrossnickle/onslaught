@@ -649,65 +649,100 @@ function GameService:_offerUpgradeCards(player: Player)
 	local cardsCfg = GameConfig.UpgradeCards
 	local available: { any } = {}
 
+	local ws = CombatService:GetWeaponState(player)
+	local unlockedWeapons = StatsService and StatsService:GetUnlockedWeapons(player) or { Orbiter = true }
+
+	-- Map of weapon acquisition cards to their Has* field checks
+	local weaponAcqMap: { [string]: { weapon: string, hasField: string } } = {
+		NewProjectile = { weapon = "Projectile", hasField = "HasProjectile" },
+		NewLightning = { weapon = "Lightning", hasField = "HasLightning" },
+		NewAura = { weapon = "Aura", hasField = "HasAura" },
+		NewVoidWhip = { weapon = "VoidWhip", hasField = "HasVoidWhip" },
+		NewShadowDaggers = { weapon = "ShadowDaggers", hasField = "HasShadowDaggers" },
+		NewGravityWell = { weapon = "GravityWell", hasField = "HasGravityWell" },
+		NewPlagueCloud = { weapon = "PlagueCloud", hasField = "HasPlagueCloud" },
+		NewVoidMissiles = { weapon = "VoidMissiles", hasField = "HasVoidMissiles" },
+		NewSpectralScythe = { weapon = "SpectralScythe", hasField = "HasSpectralScythe" },
+		NewSoulDrain = { weapon = "SoulDrain", hasField = "HasSoulDrain" },
+		NewShockwave = { weapon = "Shockwave", hasField = "HasShockwave" },
+	}
+
+	-- Map of weapon upgrade cards to their Has* field checks
+	local weaponHasMap: { [string]: string } = {
+		Projectile = "HasProjectile",
+		Lightning = "HasLightning",
+		Aura = "HasAura",
+		VoidWhip = "HasVoidWhip",
+		ShadowDaggers = "HasShadowDaggers",
+		GravityWell = "HasGravityWell",
+		PlagueCloud = "HasPlagueCloud",
+		VoidMissiles = "HasVoidMissiles",
+		SpectralScythe = "HasSpectralScythe",
+		SoulDrain = "HasSoulDrain",
+		Shockwave = "HasShockwave",
+	}
+
 	-- Filter eligible upgrades
 	for _, card in cardsCfg.Options do
 		local stacks = stats.Upgrades[card.Id] or 0
 		if stacks >= card.MaxStacks then
 			continue
 		end
-		-- Check weapon requirements
+
+		-- Check weapon requirements for upgrade cards
 		if card.RequiresWeapon then
-			local ws = CombatService:GetWeaponState(player)
 			if not ws then
 				continue
 			end
-			if card.RequiresWeapon == "Projectile" and not ws.HasProjectile then
-				continue
-			end
-			if card.RequiresWeapon == "Lightning" and not ws.HasLightning then
-				continue
-			end
-			if card.RequiresWeapon == "Aura" and not ws.HasAura then
+			local hasField = weaponHasMap[card.RequiresWeapon]
+			if hasField and not (ws :: any)[hasField] then
 				continue
 			end
 		end
-		-- Check weapon unlocks (persistent progression)
-		local unlockedWeapons = StatsService and StatsService:GetUnlockedWeapons(player) or { Orbiter = true }
 
-		-- Don't offer weapon unlock cards if already owned or not unlocked
-		if card.Id == "NewProjectile" then
-			if not unlockedWeapons["Projectile"] then
-				continue
+		-- Check weapon acquisition cards
+		local acq = weaponAcqMap[card.Id]
+		if acq then
+			-- Must be unlocked in persistent data (or "default" pool)
+			if not unlockedWeapons[acq.weapon] then
+				-- Check if it's a default-pool weapon
+				local unlockCfg = (GameConfig :: any).WeaponUnlocks and (GameConfig :: any).WeaponUnlocks[acq.weapon]
+				if not unlockCfg or unlockCfg.Type ~= "default" then
+					continue
+				end
 			end
-			local ws = CombatService:GetWeaponState(player)
-			if ws and ws.HasProjectile then
-				continue
-			end
-		end
-		if card.Id == "NewLightning" then
-			if not unlockedWeapons["Lightning"] then
-				continue
-			end
-			local ws = CombatService:GetWeaponState(player)
-			if ws and ws.HasLightning then
+			-- Must not already have it this run
+			if ws and (ws :: any)[acq.hasField] then
 				continue
 			end
 		end
-		if card.Id == "NewAura" then
-			if not unlockedWeapons["Aura"] then
-				continue
-			end
-			local ws = CombatService:GetWeaponState(player)
-			if ws and ws.HasAura then
-				continue
-			end
-		end
+
 		table.insert(available, card)
+	end
+
+	-- Check for available evolutions (priority — offer as first card)
+	local evoCard: any = nil
+	if ws then
+		local evo = CombatService:GetAvailableEvolution(player)
+		if evo then
+			evoCard = {
+				Id = "Evo_" .. evo.Id,
+				Name = evo.Name,
+				Description = evo.Description,
+				IsEvolution = true,
+			}
+		end
 	end
 
 	-- Pick random cards
 	local offered: { { Id: string, Name: string, Description: string } } = {}
-	local count = math.min(cardsCfg.CardsOffered, #available)
+
+	-- Evolution card gets priority slot
+	if evoCard then
+		table.insert(offered, { Id = evoCard.Id, Name = evoCard.Name, Description = evoCard.Description })
+	end
+
+	local count = math.min(cardsCfg.CardsOffered - (evoCard and 1 or 0), #available)
 
 	-- Shuffle and take first N
 	local shuffled = table.clone(available)
@@ -734,6 +769,23 @@ function GameService:_applyUpgrade(player: Player, upgradeId: string): boolean
 	local stats = _playerStats[player]
 	if not stats or stats.PendingLevelUps <= 0 then
 		return false
+	end
+
+	-- Check for evolution cards (prefixed with "Evo_")
+	if upgradeId:sub(1, 4) == "Evo_" then
+		local evoId = upgradeId:sub(5)
+		local success = CombatService:ApplyEvolution(player, evoId)
+		if not success then
+			return false
+		end
+		stats.PendingLevelUps -= 1
+		self:_syncStats(player)
+		if stats.PendingLevelUps > 0 then
+			task.defer(function()
+				self:_offerUpgradeCards(player)
+			end)
+		end
+		return true
 	end
 
 	-- Validate the upgrade exists and is eligible
@@ -769,17 +821,8 @@ function GameService:_applyUpgrade(player: Player, upgradeId: string): boolean
 	elseif upgradeId == "MaxHealthUp" then
 		stats.MaxHealth += 25
 		stats.Health += 25
-	elseif
-		upgradeId == "NewProjectile"
-		or upgradeId == "OrbiterCount"
-		or upgradeId == "ProjectilePierce"
-		or upgradeId == "ProjectileSpeed"
-		or upgradeId == "NewLightning"
-		or upgradeId == "LightningChain"
-		or upgradeId == "NewAura"
-		or upgradeId == "AuraRadius"
-		or upgradeId == "AuraDamage"
-	then
+	else
+		-- All weapon-related cards (acquisition + upgrades) go through CombatService
 		CombatService:ApplyWeaponUpgrade(player, upgradeId)
 		CombatService:UpdateDamage(player)
 	end
