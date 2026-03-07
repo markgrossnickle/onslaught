@@ -158,6 +158,103 @@ GameConfig.Enemies = {
 			Material = Enum.Material.Glass,
 			TendrilCount = 8,
 		},
+		BroodQueen = {
+			Health = 3000,
+			Speed = 4,
+			Damage = 35,
+			AttackRange = 8,
+			AttackCooldown = 2.0,
+			Size = Vector3.new(12, 10, 12),
+			XPValue = 300,
+			BodyColor = Color3.fromRGB(30, 10, 40),
+			CoreColor = Color3.fromRGB(220, 60, 180),
+			EyeColor = Color3.fromRGB(255, 60, 60),
+			Material = Enum.Material.SmoothPlastic,
+			TendrilCount = 6,
+			-- Attacks
+			SpawnInterval = 8.0,
+			SpawnCount = 5,
+			PoisonPuddleInterval = 10.0,
+			PoisonPuddleRadius = 8,
+			PoisonPuddleDamage = 5, -- per second
+			PoisonPuddleDuration = 6.0,
+			EnrageThreshold = 0.3,
+		},
+		PhantomWeaver = {
+			Health = 2500,
+			Speed = 10,
+			Damage = 40,
+			AttackRange = 6,
+			AttackCooldown = 1.0,
+			Size = Vector3.new(8, 10, 8),
+			XPValue = 300,
+			BodyColor = Color3.fromRGB(10, 5, 25),
+			CoreColor = Color3.fromRGB(140, 60, 220),
+			EyeColor = Color3.fromRGB(200, 80, 255),
+			Material = Enum.Material.Glass,
+			TendrilCount = 4,
+			-- Attacks
+			TeleportInterval = 5.0,
+			TeleportTelegraph = 0.8,
+			CloneCount = 2,
+			CloneHealth = 200,
+			CloneDuration = 8.0,
+			ShadowBoltInterval = 3.0,
+			ShadowBoltDamage = 20,
+			ShadowBoltSpeed = 35,
+			EnrageThreshold = 0.3,
+		},
+		AbyssalSerpent = {
+			Health = 3500,
+			Speed = 8,
+			Damage = 45,
+			AttackRange = 7,
+			AttackCooldown = 1.5,
+			Size = Vector3.new(14, 6, 14),
+			XPValue = 350,
+			BodyColor = Color3.fromRGB(5, 20, 30),
+			CoreColor = Color3.fromRGB(40, 180, 220),
+			EyeColor = Color3.fromRGB(60, 255, 200),
+			Material = Enum.Material.SmoothPlastic,
+			-- Attacks
+			ChargeInterval = 8.0,
+			ChargeSpeed = 40,
+			ChargeDamage = 50,
+			ChargeDuration = 1.5,
+			TailSweepInterval = 6.0,
+			TailSweepRadius = 15,
+			TailSweepDamage = 30,
+			AcidSpitInterval = 4.0,
+			AcidSpitDamage = 15,
+			AcidSpitSpeed = 30,
+			EnrageThreshold = 0.3,
+		},
+		VoidArchitect = {
+			Health = 4000,
+			Speed = 3,
+			Damage = 30,
+			AttackRange = 10,
+			AttackCooldown = 2.0,
+			Size = Vector3.new(10, 12, 10),
+			XPValue = 400,
+			BodyColor = Color3.fromRGB(15, 10, 30),
+			CoreColor = Color3.fromRGB(255, 200, 60),
+			EyeColor = Color3.fromRGB(255, 255, 100),
+			Material = Enum.Material.Glass,
+			TendrilCount = 6,
+			-- Attacks
+			LaserInterval = 6.0,
+			LaserDamage = 10, -- per tick during sweep
+			LaserDuration = 2.0,
+			LaserRange = 30,
+			BarrierInterval = 12.0,
+			BarrierCount = 3,
+			BarrierHealth = 300,
+			BarrierDuration = 10.0,
+			SummonInterval = 15.0,
+			SummonCount = 3,
+			EnrageThreshold = 0.3,
+		},
 		MegaBoss = {
 			Health = 8000,
 			Speed = 5,
@@ -224,9 +321,8 @@ GameConfig.Enemies = {
 			MaxPerWave = 2,
 			IntroWave = 8,
 		},
-	},
 
-	-- New enemy types
+		-- New enemy types
 		Swarmling = {
 			Health = 3,
 			Speed = 14,
@@ -385,6 +481,8 @@ GameConfig.Enemies = {
 	},
 	BossInterval = 60, -- spawn a boss every N seconds
 	BossStartTime = 120, -- first boss at this time
+	-- Boss type rotation: cycles through these as periodic bosses spawn
+	BossRotation = { "Boss", "BroodQueen", "PhantomWeaver", "AbyssalSerpent", "VoidArchitect" },
 }
 
 -- Waves

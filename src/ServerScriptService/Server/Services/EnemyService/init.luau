@@ -53,6 +53,25 @@ export type EnemyData = {
 	PhaseState: string?, -- "SOLID" | "PHASED"
 	PhaseStateUntil: number?,
 	-- Hivemind-specific (no extra fields needed, buff applied in AI)
+	-- BroodQueen-specific
+	LastPoisonPuddle: number?,
+	-- PhantomWeaver-specific
+	LastShadowBolt: number?,
+	LastCloneSpawn: number?,
+	-- AbyssalSerpent-specific
+	ChargeState: string?, -- "IDLE" | "CHARGING"
+	ChargeDirection: Vector3?,
+	ChargeUntil: number?,
+	LastCharge: number?,
+	LastTailSweep: number?,
+	LastAcidSpit: number?,
+	-- VoidArchitect-specific
+	LaserState: string?, -- "IDLE" | "FIRING"
+	LaserUntil: number?,
+	LaserTarget: Vector3?,
+	LastLaser: number?,
+	LastBarrier: number?,
+	LastSummon: number?,
 }
 
 export type WormData = {
@@ -70,6 +89,12 @@ local EnemyService = Knit.CreateService({
 		TendrilSlam = Knit.CreateSignal(), -- (position, radius)
 		VoidPullStarted = Knit.CreateSignal(), -- (position, duration)
 		BossHealthUpdate = Knit.CreateSignal(), -- (healthPct, enraged)
+		PoisonPuddlePlaced = Knit.CreateSignal(), -- (position, radius, duration)
+		ShadowBoltFired = Knit.CreateSignal(), -- (startPos, direction)
+		BossCharge = Knit.CreateSignal(), -- (startPos, endPos)
+		TailSweep = Knit.CreateSignal(), -- (position, radius)
+		BossLaser = Knit.CreateSignal(), -- (startPos, targetPos, duration)
+		BarrierPlaced = Knit.CreateSignal(), -- (position)
 	},
 
 	EnemyKilled = Signal.new(), -- (enemyData, killerPlayer)
@@ -81,8 +106,18 @@ local _nextWormId: number = 1
 local _enemyFolder: Folder = nil :: any
 local _spawning: boolean = false
 local _lastBossSpawnTime: number = 0
+local _bossSpawnCount: number = 0
 local _megaBossEnemy: EnemyData? = nil
 local _enraged: boolean = false
+
+local BOSS_TYPES: { [string]: boolean } = {
+	Boss = true,
+	MegaBoss = true,
+	BroodQueen = true,
+	PhantomWeaver = true,
+	AbyssalSerpent = true,
+	VoidArchitect = true,
+}
 
 local GameService: any
 local ArenaService: any
@@ -1388,7 +1423,14 @@ function EnemyService:_createEnemyModel(enemyType: string, position: Vector3): M
 		body = buildBehemothModel(cfg, position, model)
 	elseif enemyType == "Shade" then
 		body = buildShadeModel(cfg, position, model)
-	elseif enemyType == "MegaBoss" or enemyType == "Boss" then
+	elseif
+		enemyType == "MegaBoss"
+		or enemyType == "Boss"
+		or enemyType == "BroodQueen"
+		or enemyType == "PhantomWeaver"
+		or enemyType == "AbyssalSerpent"
+		or enemyType == "VoidArchitect"
+	then
 		body = buildBossModel(cfg, position, model, enemyType == "MegaBoss")
 	elseif enemyType == "Swarmling" then
 		body = buildSwarmlingModel(cfg, position, model)
@@ -1447,7 +1489,7 @@ function EnemyService:SpawnEnemy(enemyType: string, position: Vector3): EnemyDat
 	-- Player-count scaling for HP
 	local playerCount = GameService:GetPlayerCount()
 	local scalingCfg = GameConfig.Scaling
-	if enemyType == "Boss" or enemyType == "MegaBoss" then
+	if BOSS_TYPES[enemyType] then
 		healthMult *= 1.0 + scalingCfg.BossHealthPerPlayer * (playerCount - 1)
 	else
 		healthMult *= 1.0 + scalingCfg.EnemyHealthPerPlayer * (playerCount - 1)
@@ -1515,6 +1557,44 @@ function EnemyService:SpawnEnemy(enemyType: string, position: Vector3): EnemyDat
 		enemyData.LastVoidPull = now
 	end
 
+	-- BroodQueen: init timers
+	if enemyType == "BroodQueen" then
+		local now = tick()
+		enemyData.BossState = "CHASE"
+		enemyData.LastSpawnTime = now
+		enemyData.LastPoisonPuddle = now
+	end
+
+	-- PhantomWeaver: init timers
+	if enemyType == "PhantomWeaver" then
+		local now = tick()
+		enemyData.BossState = "CHASE"
+		enemyData.LastTeleportTime = now
+		enemyData.TeleportPhase = "VISIBLE"
+		enemyData.LastShadowBolt = now
+		enemyData.LastCloneSpawn = now
+	end
+
+	-- AbyssalSerpent: init timers
+	if enemyType == "AbyssalSerpent" then
+		local now = tick()
+		enemyData.BossState = "CHASE"
+		enemyData.ChargeState = "IDLE"
+		enemyData.LastCharge = now
+		enemyData.LastTailSweep = now
+		enemyData.LastAcidSpit = now
+	end
+
+	-- VoidArchitect: init timers
+	if enemyType == "VoidArchitect" then
+		local now = tick()
+		enemyData.BossState = "CHASE"
+		enemyData.LaserState = "IDLE"
+		enemyData.LastLaser = now
+		enemyData.LastBarrier = now
+		enemyData.LastSummon = now
+	end
+
 	-- Update AlignPosition max velocity with scaled speed
 	local body = model.PrimaryPart
 	if body then
@@ -1576,7 +1656,7 @@ function EnemyService:DamageEnemy(enemy: EnemyData, damage: number, attacker: Pl
 	self:_updateHealthBar(enemy)
 
 	-- Boss health bar update
-	if enemy.Type == "MegaBoss" then
+	if BOSS_TYPES[enemy.Type] then
 		local pct = math.clamp(enemy.Health / enemy.MaxHealth, 0, 1)
 		local isEnraged = _enraged
 		self.Client.BossHealthUpdate:FireAll(pct, isEnraged)
@@ -1626,6 +1706,11 @@ function EnemyService:_killEnemy(enemy: EnemyData, killer: Player?)
 	if enemy.Type == "MegaBoss" then
 		_megaBossEnemy = nil
 		GameService:MegaBossKilled()
+	end
+
+	-- Reset enrage when any periodic boss dies
+	if BOSS_TYPES[enemy.Type] and enemy.Type ~= "MegaBoss" then
+		_enraged = false
 	end
 
 	GameService:EnemyKilled(killer)
@@ -1934,6 +2019,507 @@ function EnemyService:_updateBossAI(enemy: EnemyData, _dt: number, now: number)
 			end
 		end
 	end
+end
+
+-------------------------------------------------
+-- BROOD QUEEN AI
+-------------------------------------------------
+function EnemyService:_updateBroodQueenAI(enemy: EnemyData, _dt: number, now: number)
+	if not enemy.Alive then
+		return
+	end
+
+	local body = enemy.Model and enemy.Model.PrimaryPart
+	if not body then
+		return
+	end
+
+	local cfg = (GameConfig.Enemies.Types :: any).BroodQueen
+	local pos = body.Position
+
+	-- Enrage check
+	if not _enraged and enemy.Health / enemy.MaxHealth <= cfg.EnrageThreshold then
+		_enraged = true
+		enemy.Damage = math.floor(enemy.Damage * 1.5)
+		enemy.Speed *= 1.3
+		local align = body:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+		if align then
+			align.MaxVelocity = enemy.Speed
+		end
+	end
+
+	-- State machine
+	if enemy.BossStateUntil and now < enemy.BossStateUntil then
+		return
+	end
+	enemy.BossState = "CHASE"
+
+	-- Spawn swarmlings
+	if now - (enemy.LastSpawnTime or 0) >= cfg.SpawnInterval then
+		enemy.BossState = "SPAWN"
+		enemy.LastSpawnTime = now
+		enemy.BossStateUntil = now + 1.0
+
+		local spawnCount = math.min(cfg.SpawnCount, GameService:GetMaxConcurrentEnemies() - #_enemies)
+		for i = 1, spawnCount do
+			local angle = (i / spawnCount) * math.pi * 2
+			local spawnPos = pos + Vector3.new(math.cos(angle) * 6, 0, math.sin(angle) * 6)
+			self:SpawnEnemy("Swarmling", spawnPos)
+		end
+		return
+	end
+
+	-- Poison puddle
+	if now - (enemy.LastPoisonPuddle or 0) >= cfg.PoisonPuddleInterval then
+		enemy.LastPoisonPuddle = now
+		enemy.BossStateUntil = now + 0.5
+
+		local target = self:_findClosestPlayer(pos)
+		if target then
+			local char = target.Character
+			if char then
+				local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if root then
+					local puddlePos = root.Position
+					self.Client.PoisonPuddlePlaced:FireAll(puddlePos, cfg.PoisonPuddleRadius, cfg.PoisonPuddleDuration)
+					-- Damage over time in puddle area
+					task.spawn(function()
+						local elapsed = 0
+						while elapsed < cfg.PoisonPuddleDuration do
+							local dt2 = task.wait(1)
+							elapsed += dt2
+							for _, player in Players:GetPlayers() do
+								local stats = GameService:GetPlayerStats(player)
+								if stats and stats.Health > 0 then
+									local pChar = player.Character
+									if pChar then
+										local pRoot = pChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+										if
+											pRoot
+											and (pRoot.Position - puddlePos).Magnitude <= cfg.PoisonPuddleRadius
+										then
+											GameService:DamagePlayer(player, cfg.PoisonPuddleDamage)
+										end
+									end
+								end
+							end
+						end
+					end)
+				end
+			end
+		end
+	end
+end
+
+-------------------------------------------------
+-- PHANTOM WEAVER AI
+-------------------------------------------------
+function EnemyService:_updatePhantomWeaverAI(enemy: EnemyData, _dt: number, now: number)
+	if not enemy.Alive then
+		return
+	end
+
+	local body = enemy.Model and enemy.Model.PrimaryPart
+	if not body then
+		return
+	end
+
+	local cfg = (GameConfig.Enemies.Types :: any).PhantomWeaver
+	local pos = body.Position
+
+	-- Enrage
+	if not _enraged and enemy.Health / enemy.MaxHealth <= cfg.EnrageThreshold then
+		_enraged = true
+		enemy.Speed *= 1.5
+		local align = body:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+		if align then
+			align.MaxVelocity = enemy.Speed
+		end
+	end
+
+	-- State machine
+	if enemy.BossStateUntil and now < enemy.BossStateUntil then
+		return
+	end
+	enemy.BossState = "CHASE"
+
+	-- Teleport + spawn clones
+	if now - (enemy.LastTeleportTime or 0) >= cfg.TeleportInterval then
+		enemy.LastTeleportTime = now
+		enemy.BossStateUntil = now + cfg.TeleportTelegraph + 0.3
+
+		-- Telegraph then teleport
+		task.delay(cfg.TeleportTelegraph, function()
+			if not enemy.Alive then
+				return
+			end
+
+			local target = self:_findClosestPlayer(pos)
+			if target then
+				local char = target.Character
+				if char then
+					local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+					if root then
+						-- Teleport near target
+						local offset = Vector3.new(math.random(-8, 8), 0, math.random(-8, 8))
+						local newPos = root.Position + offset
+						if body then
+							local align = body:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+							if align then
+								align.Position = Vector3.new(newPos.X, body.Size.Y / 2, newPos.Z)
+							end
+							body.CFrame = CFrame.new(newPos.X, body.Size.Y / 2, newPos.Z)
+						end
+
+						-- Spawn shadow clones
+						local cloneCount = math.min(cfg.CloneCount, GameService:GetMaxConcurrentEnemies() - #_enemies)
+						for _ = 1, cloneCount do
+							local cloneOffset = Vector3.new(math.random(-5, 5), 0, math.random(-5, 5))
+							local clonePos = newPos + cloneOffset
+							local clone = self:SpawnEnemy("Drone", clonePos)
+							clone.Health = cfg.CloneHealth
+							clone.MaxHealth = cfg.CloneHealth
+							-- Auto-despawn clones after duration
+							task.delay(cfg.CloneDuration, function()
+								if clone.Alive then
+									self:_killEnemy(clone, nil)
+								end
+							end)
+						end
+					end
+				end
+			end
+		end)
+		return
+	end
+
+	-- Shadow bolt
+	if now - (enemy.LastShadowBolt or 0) >= cfg.ShadowBoltInterval then
+		enemy.LastShadowBolt = now
+
+		local target = self:_findClosestPlayer(pos)
+		if target then
+			local char = target.Character
+			if char then
+				local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if root then
+					local dir = (root.Position - pos).Unit
+					self.Client.ShadowBoltFired:FireAll(pos, dir)
+					-- Reuse void bolt logic with shadow bolt config
+					self:_fireBossProjectile(pos, dir, cfg.ShadowBoltSpeed, cfg.ShadowBoltDamage)
+				end
+			end
+		end
+	end
+end
+
+-------------------------------------------------
+-- ABYSSAL SERPENT AI
+-------------------------------------------------
+function EnemyService:_updateAbyssalSerpentAI(enemy: EnemyData, _dt: number, now: number)
+	if not enemy.Alive then
+		return
+	end
+
+	local body = enemy.Model and enemy.Model.PrimaryPart
+	if not body then
+		return
+	end
+
+	local cfg = (GameConfig.Enemies.Types :: any).AbyssalSerpent
+	local pos = body.Position
+
+	-- Enrage
+	if not _enraged and enemy.Health / enemy.MaxHealth <= cfg.EnrageThreshold then
+		_enraged = true
+		enemy.Damage = math.floor(enemy.Damage * 1.5)
+		enemy.Speed *= 1.5
+		local align = body:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+		if align then
+			align.MaxVelocity = enemy.Speed
+		end
+	end
+
+	-- Handle active charge
+	if enemy.ChargeState == "CHARGING" and enemy.ChargeUntil and now < enemy.ChargeUntil then
+		if enemy.ChargeDirection and body then
+			local align = body:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+			if align then
+				align.MaxVelocity = cfg.ChargeSpeed
+				align.Position = pos + enemy.ChargeDirection * cfg.ChargeSpeed * _dt * 10
+			end
+			-- Damage players in path
+			for _, player in Players:GetPlayers() do
+				local stats = GameService:GetPlayerStats(player)
+				if stats and stats.Health > 0 then
+					local char = player.Character
+					if char then
+						local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+						if root and (root.Position - pos).Magnitude <= enemy.AttackRange then
+							GameService:DamagePlayer(player, cfg.ChargeDamage)
+						end
+					end
+				end
+			end
+		end
+		return
+	elseif enemy.ChargeState == "CHARGING" then
+		-- Charge ended
+		enemy.ChargeState = "IDLE"
+		local align = body:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+		if align then
+			align.MaxVelocity = enemy.Speed
+		end
+	end
+
+	-- State machine
+	if enemy.BossStateUntil and now < enemy.BossStateUntil then
+		return
+	end
+	enemy.BossState = "CHASE"
+
+	-- Charge attack
+	if now - (enemy.LastCharge or 0) >= cfg.ChargeInterval then
+		enemy.LastCharge = now
+		enemy.BossStateUntil = now + cfg.ChargeDuration
+
+		local target = self:_findClosestPlayer(pos)
+		if target then
+			local char = target.Character
+			if char then
+				local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if root then
+					local dir = (root.Position - pos)
+					local flatDir = Vector3.new(dir.X, 0, dir.Z).Unit
+					enemy.ChargeState = "CHARGING"
+					enemy.ChargeDirection = flatDir
+					enemy.ChargeUntil = now + cfg.ChargeDuration
+					local endPos = pos + flatDir * cfg.ChargeSpeed * cfg.ChargeDuration
+					self.Client.BossCharge:FireAll(pos, endPos)
+				end
+			end
+		end
+		return
+	end
+
+	-- Tail sweep
+	if now - (enemy.LastTailSweep or 0) >= cfg.TailSweepInterval then
+		enemy.LastTailSweep = now
+		enemy.BossStateUntil = now + 0.5
+
+		self.Client.TailSweep:FireAll(pos, cfg.TailSweepRadius)
+		task.delay(0.3, function()
+			if not enemy.Alive then
+				return
+			end
+			for _, player in Players:GetPlayers() do
+				local stats = GameService:GetPlayerStats(player)
+				if stats and stats.Health > 0 then
+					local char = player.Character
+					if char then
+						local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+						if root and (root.Position - pos).Magnitude <= cfg.TailSweepRadius then
+							GameService:DamagePlayer(player, cfg.TailSweepDamage)
+						end
+					end
+				end
+			end
+		end)
+		return
+	end
+
+	-- Acid spit
+	if now - (enemy.LastAcidSpit or 0) >= cfg.AcidSpitInterval then
+		enemy.LastAcidSpit = now
+
+		local target = self:_findClosestPlayer(pos)
+		if target then
+			local char = target.Character
+			if char then
+				local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if root then
+					local dir = (root.Position - pos).Unit
+					self:_fireBossProjectile(pos, dir, cfg.AcidSpitSpeed, cfg.AcidSpitDamage)
+				end
+			end
+		end
+	end
+end
+
+-------------------------------------------------
+-- VOID ARCHITECT AI
+-------------------------------------------------
+function EnemyService:_updateVoidArchitectAI(enemy: EnemyData, _dt: number, now: number)
+	if not enemy.Alive then
+		return
+	end
+
+	local body = enemy.Model and enemy.Model.PrimaryPart
+	if not body then
+		return
+	end
+
+	local cfg = (GameConfig.Enemies.Types :: any).VoidArchitect
+	local pos = body.Position
+
+	-- Enrage
+	if not _enraged and enemy.Health / enemy.MaxHealth <= cfg.EnrageThreshold then
+		_enraged = true
+		enemy.Damage = math.floor(enemy.Damage * 1.5)
+	end
+
+	-- Handle active laser
+	if enemy.LaserState == "FIRING" and enemy.LaserUntil and now < enemy.LaserUntil then
+		-- Damage players near laser line
+		if enemy.LaserTarget then
+			local laserDir = (enemy.LaserTarget - pos).Unit
+			for _, player in Players:GetPlayers() do
+				local stats = GameService:GetPlayerStats(player)
+				if stats and stats.Health > 0 then
+					local char = player.Character
+					if char then
+						local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+						if root then
+							-- Simple proximity check to laser line
+							local toPlayer = root.Position - pos
+							local proj = toPlayer:Dot(laserDir)
+							if proj > 0 and proj < cfg.LaserRange then
+								local perpDist = (toPlayer - laserDir * proj).Magnitude
+								if perpDist < 4 then
+									GameService:DamagePlayer(player, cfg.LaserDamage)
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+		return
+	elseif enemy.LaserState == "FIRING" then
+		enemy.LaserState = "IDLE"
+	end
+
+	-- State machine
+	if enemy.BossStateUntil and now < enemy.BossStateUntil then
+		return
+	end
+	enemy.BossState = "CHASE"
+
+	-- Laser beam
+	if now - (enemy.LastLaser or 0) >= cfg.LaserInterval then
+		enemy.LastLaser = now
+		enemy.BossStateUntil = now + cfg.LaserDuration
+
+		local target = self:_findClosestPlayer(pos)
+		if target then
+			local char = target.Character
+			if char then
+				local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if root then
+					enemy.LaserState = "FIRING"
+					enemy.LaserTarget = root.Position
+					enemy.LaserUntil = now + cfg.LaserDuration
+					self.Client.BossLaser:FireAll(pos, root.Position, cfg.LaserDuration)
+				end
+			end
+		end
+		return
+	end
+
+	-- Place barriers
+	if now - (enemy.LastBarrier or 0) >= cfg.BarrierInterval then
+		enemy.LastBarrier = now
+		enemy.BossStateUntil = now + 0.5
+
+		for i = 1, cfg.BarrierCount do
+			local angle = (i / cfg.BarrierCount) * math.pi * 2
+			local barrierPos = pos + Vector3.new(math.cos(angle) * 12, 0, math.sin(angle) * 12)
+			self.Client.BarrierPlaced:FireAll(barrierPos)
+
+			-- Create barrier part
+			task.spawn(function()
+				local barrier = Instance.new("Part")
+				barrier.Name = "VoidBarrier"
+				barrier.Size = Vector3.new(6, 8, 2)
+				barrier.Color = Color3.fromRGB(40, 20, 80)
+				barrier.Material = Enum.Material.Neon
+				barrier.Transparency = 0.3
+				barrier.Anchored = true
+				barrier.CanCollide = true
+				barrier.CastShadow = false
+				barrier.Position = Vector3.new(barrierPos.X, 4, barrierPos.Z)
+				barrier.CFrame = CFrame.new(barrier.Position) * CFrame.Angles(0, angle, 0)
+				barrier.Parent = _enemyFolder
+
+				task.wait(cfg.BarrierDuration)
+				if barrier.Parent then
+					barrier:Destroy()
+				end
+			end)
+		end
+		return
+	end
+
+	-- Summon constructs
+	if now - (enemy.LastSummon or 0) >= cfg.SummonInterval then
+		enemy.LastSummon = now
+		enemy.BossStateUntil = now + 1.0
+
+		local spawnCount = math.min(cfg.SummonCount, GameService:GetMaxConcurrentEnemies() - #_enemies)
+		for i = 1, spawnCount do
+			local angle = (i / spawnCount) * math.pi * 2
+			local spawnPos = pos + Vector3.new(math.cos(angle) * 8, 0, math.sin(angle) * 8)
+			self:SpawnEnemy("Drone", spawnPos)
+		end
+	end
+end
+
+-------------------------------------------------
+-- GENERIC BOSS PROJECTILE (reusable)
+-------------------------------------------------
+function EnemyService:_fireBossProjectile(startPos: Vector3, direction: Vector3, speed: number, damage: number)
+	local bolt = Instance.new("Part")
+	bolt.Name = "BossProjectile"
+	bolt.Shape = Enum.PartType.Ball
+	bolt.Size = Vector3.one * 1.5
+	bolt.Color = Color3.fromRGB(80, 30, 120)
+	bolt.Material = Enum.Material.Neon
+	bolt.Anchored = true
+	bolt.CanCollide = false
+	bolt.CastShadow = false
+	bolt.Position = startPos
+	bolt.Parent = _enemyFolder
+
+	task.spawn(function()
+		local pos = startPos
+		local maxDist = 60
+		local traveled = 0
+
+		while traveled < maxDist do
+			local dt = task.wait()
+			pos += direction * speed * dt
+			bolt.Position = pos
+			traveled += speed * dt
+
+			-- Hit detection
+			for _, player in Players:GetPlayers() do
+				local stats = GameService:GetPlayerStats(player)
+				if stats and stats.Health > 0 then
+					local char = player.Character
+					if char then
+						local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+						if root and (root.Position - pos).Magnitude < 4 then
+							GameService:DamagePlayer(player, damage)
+							bolt:Destroy()
+							return
+						end
+					end
+				end
+			end
+		end
+
+		bolt:Destroy()
+	end)
 end
 
 function EnemyService:_fireVoidBolt(startPos: Vector3, direction: Vector3, cfg: any)
@@ -2503,6 +3089,14 @@ function EnemyService:_updateEnemies(dt: number)
 		-- Boss has attack AI layered on top of chase
 		if enemy.Type == "MegaBoss" then
 			self:_updateBossAI(enemy, dt, now)
+		elseif enemy.Type == "BroodQueen" then
+			self:_updateBroodQueenAI(enemy, dt, now)
+		elseif enemy.Type == "PhantomWeaver" then
+			self:_updatePhantomWeaverAI(enemy, dt, now)
+		elseif enemy.Type == "AbyssalSerpent" then
+			self:_updateAbyssalSerpentAI(enemy, dt, now)
+		elseif enemy.Type == "VoidArchitect" then
+			self:_updateVoidArchitectAI(enemy, dt, now)
 		end
 
 		local body = enemy.Model.PrimaryPart
@@ -2768,8 +3362,14 @@ function EnemyService:_checkBossSpawn()
 
 	if shouldSpawn then
 		_lastBossSpawnTime = gameElapsed
+		_bossSpawnCount += 1
+
+		-- Rotate through boss types
+		local rotation = GameConfig.Enemies.BossRotation
+		local bossType = rotation[(((_bossSpawnCount - 1) % #rotation) + 1)]
+
 		local positions = ArenaService:GetSpawnPositions(1)
-		self:SpawnEnemy("Boss", positions[1])
+		self:SpawnEnemy(bossType, positions[1])
 		-- Add boss to wave enemy count so it doesn't end the wave early
 		local remaining = GameService:GetEnemiesRemaining()
 		GameService:SetEnemiesRemaining(remaining + 1)
@@ -2834,6 +3434,7 @@ function EnemyService:KnitStart()
 		if state == "GameOver" or state == "Victory" or state == "WaitingForPlayers" or state == "Lobby" then
 			self:_clearAllEnemies()
 			_lastBossSpawnTime = 0
+			_bossSpawnCount = 0
 			_megaBossEnemy = nil
 			_enraged = false
 		elseif state == "MegaBoss" then

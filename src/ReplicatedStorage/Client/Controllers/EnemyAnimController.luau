@@ -431,7 +431,13 @@ function EnemyAnimController:KnitStart()
 				animateBehemoth(child, now)
 			elseif enemyType == "Shade" then
 				animateShade(child, now)
-			elseif enemyType == "Boss" then
+			elseif
+				enemyType == "Boss"
+				or enemyType == "BroodQueen"
+				or enemyType == "PhantomWeaver"
+				or enemyType == "AbyssalSerpent"
+				or enemyType == "VoidArchitect"
+			then
 				animateBoss(child, now, false)
 			elseif enemyType == "MegaBoss" then
 				animateBoss(child, now, true)
