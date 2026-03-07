@@ -385,8 +385,11 @@ function GameService:KnitInit()
 		self:_initPlayerStats(player)
 
 		player.CharacterAdded:Connect(function(character)
-			-- Disable default respawn
 			local humanoid = character:WaitForChild("Humanoid") :: Humanoid
+			-- Set max health to large value so Humanoid doesn't die from falls
+			humanoid.MaxHealth = math.huge
+			humanoid.Health = math.huge
+
 			humanoid.Died:Connect(function()
 				-- Handled by our system
 			end)
@@ -401,6 +404,15 @@ end
 function GameService:KnitStart()
 	-- Disable auto respawn
 	Players.CharacterAutoLoads = false
+
+	-- Spawn late joiners
+	Players.PlayerAdded:Connect(function(player: Player)
+		task.wait(2)
+		if player.Parent == Players then
+			self:_respawnPlayer(player)
+			self:_syncStats(player)
+		end
+	end)
 
 	-- Wait for first player, then start
 	task.spawn(function()

@@ -285,6 +285,12 @@ function EnemyService:_updateEnemies(dt: number)
 		local body = enemy.Model.PrimaryPart
 		local pos = body.Position
 
+		-- Kill enemies that fall off the map
+		if pos.Y < -50 then
+			self:_killEnemy(enemy, nil)
+			continue
+		end
+
 		-- Find target
 		local target, dist = self:_findClosestPlayer(pos)
 		enemy.Target = target
