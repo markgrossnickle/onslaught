@@ -6,20 +6,43 @@
 
 local GameConfig = {}
 
--- Arena
+-- Arena (Void Wasteland)
 GameConfig.Arena = {
-	FloorSize = Vector3.new(200, 2, 200),
+	Radius = 100, -- circular arena
+	FloorSize = Vector3.new(210, 2, 210), -- slightly larger than circle for floor part
 	FloorPosition = Vector3.new(0, -1, 0),
-	FloorColor = Color3.fromRGB(45, 45, 48),
-	WallHeight = 12,
-	WallThickness = 4,
-	WallColor = Color3.fromRGB(60, 60, 65),
+	FloorColor = Color3.fromRGB(25, 15, 35),
+	FloorMaterial = Enum.Material.Slate,
 
-	ObstacleCount = 12,
-	ObstacleMinSize = Vector3.new(4, 6, 4),
-	ObstacleMaxSize = Vector3.new(10, 10, 10),
-	ObstacleColor = Color3.fromRGB(80, 80, 85),
-	ObstacleSpawnMargin = 15,
+	-- Void boundary wall
+	BoundaryHeight = 15,
+	BoundarySegments = 32, -- how many Parts form the ring
+	BoundaryColor = Color3.fromRGB(15, 8, 25),
+	BoundaryTransparency = 0.8,
+	BoundarySmokeColor = Color3.fromRGB(40, 15, 60),
+
+	-- Ground veins (cosmetic glowing cracks)
+	VeinCount = 25,
+	VeinColor = Color3.fromRGB(180, 60, 220),
+	VeinMinLength = 3,
+	VeinMaxLength = 8,
+
+	-- Void crystal obstacles
+	CrystalCount = 18,
+	CrystalMinHeight = 4,
+	CrystalMaxHeight = 12,
+	CrystalColor = Color3.fromRGB(20, 10, 35),
+	CrystalCoreColor = Color3.fromRGB(140, 40, 180),
+	CrystalSpawnMargin = 15,
+
+	-- Arena evolution phases (seconds)
+	Phase2Time = 300, -- 5 min
+	Phase3Time = 600, -- 10 min
+	Phase4Time = 840, -- 14 min (boss phase)
+	FogEndPhase1 = 250,
+	FogEndPhase2 = 180,
+	FogEndPhase3 = 120,
+	FogEndPhase4 = 80,
 }
 
 -- Player
@@ -419,6 +442,72 @@ GameConfig.VFX = {
 	DamageNumberRiseSpeed = 40,
 	VoidDeathColor1 = Color3.fromRGB(120, 40, 180), -- purple
 	VoidDeathColor2 = Color3.fromRGB(20, 10, 30), -- dark void
+}
+
+-- Power-Ups
+GameConfig.PowerUps = {
+	Lifetime = 15,
+	BobAmplitude = 0.5,
+	RotateSpeed = 2,
+	OrbSize = Vector3.one * 1.8,
+	MaxPowerUps = 30,
+
+	-- Drop chances by enemy type
+	DropChances = {
+		Default = 0.02,
+		Behemoth = 0.10,
+		Boss = 0.25,
+		MegaBoss = 1.0,
+		Worm = 0.05,
+	},
+
+	Types = {
+		HealthOrb = {
+			Name = "Health Orb",
+			Color = Color3.fromRGB(60, 220, 60),
+			Duration = 0, -- instant
+			Description = "+30 HP",
+		},
+		VoidShield = {
+			Name = "Void Shield",
+			Color = Color3.fromRGB(80, 220, 255),
+			Duration = 12,
+			Description = "Blocks next hit",
+		},
+		MagnetBurst = {
+			Name = "Magnet Burst",
+			Color = Color3.fromRGB(255, 220, 50),
+			Duration = 0,
+			Description = "Pull all XP gems",
+		},
+		SpeedSurge = {
+			Name = "Speed Surge",
+			Color = Color3.fromRGB(240, 240, 255),
+			Duration = 6,
+			Description = "+60% speed",
+		},
+		DoubleXP = {
+			Name = "Double XP",
+			Color = Color3.fromRGB(255, 200, 50),
+			Duration = 15,
+			Description = "2x XP gain",
+		},
+		VoidBomb = {
+			Name = "Void Bomb",
+			Color = Color3.fromRGB(200, 30, 30),
+			Duration = 0,
+			Description = "100 AoE damage",
+		},
+	},
+
+	TypeList = { "HealthOrb", "VoidShield", "MagnetBurst", "SpeedSurge", "DoubleXP", "VoidBomb" },
+
+	-- Void Chests
+	ChestInterval = 90,
+	ChestXPBonus = 50,
+	ChestColor = Color3.fromRGB(30, 15, 50),
+	ChestCoreColor = Color3.fromRGB(180, 60, 220),
+	ChestMinDistFromEdge = 20,
 }
 
 return table.freeze(GameConfig)
