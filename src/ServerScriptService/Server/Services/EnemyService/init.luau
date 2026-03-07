@@ -32,6 +32,16 @@ export type EnemyData = {
 	LastSpawnMinions: number?,
 	LastVoidPull: number?,
 	VoidPullUntil: number?,
+	-- Worm-specific
+	WormId: number?, -- shared across all segments of same worm
+	IsWormHead: boolean?,
+	SegmentIndex: number?,
+}
+
+export type WormData = {
+	Id: number,
+	Segments: { EnemyData }, -- ordered head to tail
+	Alive: boolean,
 }
 
 local EnemyService = Knit.CreateService({
@@ -49,6 +59,8 @@ local EnemyService = Knit.CreateService({
 })
 
 local _enemies: { EnemyData } = {}
+local _worms: { WormData } = {}
+local _nextWormId: number = 1
 local _enemyFolder: Folder = nil :: any
 local _spawning: boolean = false
 local _lastBossSpawnTime: number = 0
@@ -682,6 +694,87 @@ local function buildBossModel(cfg: any, position: Vector3, model: Model, isMega:
 	return body
 end
 
+local function buildWormSegmentModel(cfg: any, position: Vector3, segIndex: number, isHead: boolean): Model
+	local segmentModel = Instance.new("Model")
+	segmentModel.Name = "WormSegment"
+
+	local typeVal = Instance.new("StringValue")
+	typeVal.Name = "EnemyType"
+	typeVal.Value = "Worm"
+	typeVal.Parent = segmentModel
+
+	-- Scale: head is full size, later segments shrink
+	local scale = math.max(0.6, 1.0 - segIndex * 0.06)
+	local size = cfg.Size * scale
+
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Shape = Enum.PartType.Ball
+	body.Size = size
+	body.Color = cfg.BodyColor
+	body.Material = cfg.Material
+	body.Transparency = 0.2
+	body.Position = position
+	body.Anchored = false
+	body.CanCollide = true
+	body.Parent = segmentModel
+
+	-- Segment core glow
+	local core = Instance.new("Part")
+	core.Name = "Core"
+	core.Shape = Enum.PartType.Ball
+	core.Size = size * 0.35
+	core.Color = cfg.CoreColor
+	core.Material = Enum.Material.Neon
+	core.Anchored = false
+	core.CanCollide = false
+	core.CastShadow = false
+	core.Parent = segmentModel
+	core.CFrame = body.CFrame
+
+	local coreWeld = Instance.new("WeldConstraint")
+	coreWeld.Part0 = body
+	coreWeld.Part1 = core
+	coreWeld.Parent = core
+
+	-- Head gets eyes
+	if isHead then
+		for i = 1, 2 do
+			local eye = Instance.new("Part")
+			eye.Name = "Eye" .. i
+			eye.Shape = Enum.PartType.Ball
+			eye.Size = Vector3.one * 0.4
+			eye.Color = cfg.EyeColor
+			eye.Material = Enum.Material.Neon
+			eye.Anchored = false
+			eye.CanCollide = false
+			eye.CastShadow = false
+			eye.Parent = segmentModel
+
+			local xOff = (i == 1) and -0.5 or 0.5
+			eye.CFrame = body.CFrame * CFrame.new(xOff * scale, 0.2 * scale, -size.Z / 2 - 0.1)
+
+			local weld = Instance.new("WeldConstraint")
+			weld.Part0 = body
+			weld.Part1 = eye
+			weld.Parent = eye
+		end
+	end
+
+	addVoidSmoke(body, cfg.CoreColor, 3)
+
+	-- Body movers
+	addBodyMovers(body, cfg.Speed, position)
+
+	-- Health bar
+	addHealthBar(segmentModel, body, size.Y / 2 + 1)
+
+	segmentModel.PrimaryPart = body
+	segmentModel.Parent = _enemyFolder
+
+	return segmentModel
+end
+
 -------------------------------------------------
 -- CREATE ENEMY MODEL (dispatches to type-specific builder)
 -------------------------------------------------
@@ -879,6 +972,42 @@ function EnemyService:_killEnemy(enemy: EnemyData, killer: Player?)
 	end
 
 	GameService:EnemyKilled(killer)
+
+	-- Worm splitting: if this is a worm segment, split the worm
+	if enemy.Type == "Worm" and enemy.WormId then
+		local worm = self:_getWormData(enemy.WormId)
+		if worm and worm.Alive then
+			-- Find this segment's position in the worm
+			local segIdx = nil
+			for i, seg in worm.Segments do
+				if seg == enemy then
+					segIdx = i
+					break
+				end
+			end
+			if segIdx then
+				local isHead = (segIdx == 1)
+				local isTail = (segIdx == #worm.Segments)
+
+				if isHead then
+					-- Head dies: remove from front, next segment becomes head
+					table.remove(worm.Segments, 1)
+					if #worm.Segments == 0 then
+						worm.Alive = false
+					end
+				elseif isTail then
+					-- Tail dies: just remove
+					table.remove(worm.Segments, segIdx)
+					if #worm.Segments == 0 then
+						worm.Alive = false
+					end
+				else
+					-- Middle segment: split into two worms
+					self:_splitWorm(worm, segIdx)
+				end
+			end
+		end
+	end
 
 	-- Destroy model
 	task.delay(0.1, function()
@@ -1201,6 +1330,243 @@ function EnemyService:_fireVoidBolt(startPos: Vector3, direction: Vector3, cfg: 
 end
 
 -------------------------------------------------
+-- WORM SYSTEM
+-------------------------------------------------
+
+function EnemyService:SpawnWorm(position: Vector3)
+	local cfg = (GameConfig.Enemies.Types :: any).Worm
+	local wave = GameService:GetCurrentWave()
+	local waveCfg = GameConfig.Waves
+
+	local healthMult = 1 + (wave - 1) * waveCfg.HealthScaling
+	local damageMult = 1 + (wave - 1) * waveCfg.DamageScaling
+	local speedMult = 1 + (wave - 1) * waveCfg.SpeedScaling
+
+	local playerCount = GameService:GetPlayerCount()
+	healthMult *= 1.0 + GameConfig.Scaling.EnemyHealthPerPlayer * (playerCount - 1)
+
+	local segCount = cfg.SegmentCount or 6
+	local spacing = cfg.SegmentSpacing or 3.5
+	local wormId = _nextWormId
+	_nextWormId += 1
+
+	local wormData: WormData = {
+		Id = wormId,
+		Segments = {},
+		Alive = true,
+	}
+
+	for i = 1, segCount do
+		local isHead = (i == 1)
+		local segPos = position + Vector3.new(0, 0, (i - 1) * spacing)
+		local segModel = buildWormSegmentModel(cfg, segPos, i, isHead)
+
+		local segHealth = math.floor(cfg.Health * healthMult)
+		local xpVal = cfg.XPValue
+		if isHead then
+			xpVal += cfg.HeadXPBonus or 15
+		end
+
+		local enemyData: EnemyData = {
+			Model = segModel,
+			Type = "Worm",
+			Health = segHealth,
+			MaxHealth = segHealth,
+			Speed = cfg.Speed * speedMult,
+			Damage = math.floor(cfg.Damage * damageMult),
+			AttackRange = cfg.AttackRange,
+			AttackCooldown = cfg.AttackCooldown,
+			XPValue = xpVal,
+			LastAttackTime = 0,
+			Target = nil,
+			Alive = true,
+			WormId = wormId,
+			IsWormHead = isHead,
+			SegmentIndex = i,
+		}
+
+		table.insert(_enemies, enemyData)
+		table.insert(wormData.Segments, enemyData)
+	end
+
+	table.insert(_worms, wormData)
+end
+
+function EnemyService:_getWormData(wormId: number): WormData?
+	for _, worm in _worms do
+		if worm.Id == wormId then
+			return worm
+		end
+	end
+	return nil
+end
+
+function EnemyService:_updateWorms(dt: number)
+	local cfg = (GameConfig.Enemies.Types :: any).Worm
+	local spacing = cfg.SegmentSpacing or 3.5
+
+	for _, worm in _worms do
+		if not worm.Alive then
+			continue
+		end
+
+		-- Remove dead segments
+		local liveSegments: { EnemyData } = {}
+		for _, seg in worm.Segments do
+			if seg.Alive then
+				table.insert(liveSegments, seg)
+			end
+		end
+		worm.Segments = liveSegments
+
+		if #liveSegments == 0 then
+			worm.Alive = false
+			continue
+		end
+
+		-- Head: chase closest player
+		local head = liveSegments[1]
+		if not head.IsWormHead then
+			-- Promote to head (add eyes)
+			head.IsWormHead = true
+			head.XPValue += cfg.HeadXPBonus or 15
+		end
+
+		if head.Model and head.Model.PrimaryPart then
+			local body = head.Model.PrimaryPart
+			local pos = body.Position
+
+			-- 1-segment worm = fast charging fragment
+			local speed = head.Speed
+			if #liveSegments == 1 then
+				speed *= cfg.FragmentSpeedMult or 1.8
+			end
+
+			local target, dist = self:_findClosestPlayer(pos)
+			head.Target = target
+
+			if target then
+				local char = target.Character
+				if char then
+					local targetRoot = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+					if targetRoot then
+						local targetPos = targetRoot.Position
+						local direction = Vector3.new(targetPos.X - pos.X, 0, targetPos.Z - pos.Z)
+
+						local align = body:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+						if align then
+							align.MaxVelocity = speed
+							if dist > head.AttackRange then
+								local moveTarget = pos + direction.Unit * math.min(dist, speed * dt * 10)
+								align.Position =
+									Vector3.new(moveTarget.X, head.Model.PrimaryPart.Size.Y / 2, moveTarget.Z)
+							else
+								align.Position = Vector3.new(pos.X, head.Model.PrimaryPart.Size.Y / 2, pos.Z)
+							end
+						end
+
+						local alignOrient = body:FindFirstChildOfClass("AlignOrientation") :: AlignOrientation?
+						if alignOrient and direction.Magnitude > 0.1 then
+							alignOrient.CFrame = CFrame.lookAt(Vector3.zero, direction.Unit)
+						end
+
+						-- Attack
+						local now = tick()
+						if dist <= head.AttackRange and (now - head.LastAttackTime) >= head.AttackCooldown then
+							head.LastAttackTime = now
+							GameService:DamagePlayer(target, head.Damage)
+						end
+					end
+				end
+			end
+		end
+
+		-- Tail segments: follow predecessor
+		for i = 2, #liveSegments do
+			local seg = liveSegments[i]
+			local predecessor = liveSegments[i - 1]
+
+			if not seg.Model or not seg.Model.PrimaryPart then
+				continue
+			end
+			if not predecessor.Model or not predecessor.Model.PrimaryPart then
+				continue
+			end
+
+			local segBody = seg.Model.PrimaryPart
+			local predPos = predecessor.Model.PrimaryPart.Position
+			local segPos = segBody.Position
+			local towardPred = predPos - segPos
+			local flatDir = Vector3.new(towardPred.X, 0, towardPred.Z)
+			local currentDist = flatDir.Magnitude
+
+			local align = segBody:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+			if align then
+				align.MaxVelocity = seg.Speed
+				if currentDist > spacing then
+					local moveTarget = segPos + flatDir.Unit * (currentDist - spacing)
+					align.Position = Vector3.new(moveTarget.X, seg.Model.PrimaryPart.Size.Y / 2, moveTarget.Z)
+				else
+					align.Position = Vector3.new(segPos.X, seg.Model.PrimaryPart.Size.Y / 2, segPos.Z)
+				end
+			end
+
+			-- Face toward predecessor
+			local alignOrient = segBody:FindFirstChildOfClass("AlignOrientation") :: AlignOrientation?
+			if alignOrient and flatDir.Magnitude > 0.1 then
+				alignOrient.CFrame = CFrame.lookAt(Vector3.zero, flatDir.Unit)
+			end
+		end
+	end
+end
+
+function EnemyService:_splitWorm(worm: WormData, deadSegmentIndex: number)
+	-- When a middle segment dies, split worm into two independent worms
+	-- deadSegmentIndex is the index within worm.Segments before removal
+
+	local frontSegments: { EnemyData } = {}
+	local backSegments: { EnemyData } = {}
+
+	for i, seg in worm.Segments do
+		if i < deadSegmentIndex then
+			table.insert(frontSegments, seg)
+		elseif i > deadSegmentIndex then
+			table.insert(backSegments, seg)
+		end
+	end
+
+	-- The original worm keeps the front portion
+	worm.Segments = frontSegments
+	if #frontSegments == 0 then
+		worm.Alive = false
+	end
+
+	-- Create a new worm for the back portion
+	if #backSegments > 0 then
+		local newWormId = _nextWormId
+		_nextWormId += 1
+
+		local newWorm: WormData = {
+			Id = newWormId,
+			Segments = backSegments,
+			Alive = true,
+		}
+
+		-- Update worm IDs on back segments
+		for _, seg in backSegments do
+			seg.WormId = newWormId
+		end
+
+		-- Promote first back segment to head
+		backSegments[1].IsWormHead = true
+		local cfg = (GameConfig.Enemies.Types :: any).Worm
+		backSegments[1].XPValue += cfg.HeadXPBonus or 15
+
+		table.insert(_worms, newWorm)
+	end
+end
+
+-------------------------------------------------
 -- ENEMY UPDATE LOOP
 -------------------------------------------------
 
@@ -1218,6 +1584,11 @@ function EnemyService:_updateEnemies(dt: number)
 		-- Shade has custom AI
 		if enemy.Type == "Shade" then
 			self:_updateShade(enemy, dt, now)
+			continue
+		end
+
+		-- Worm segments are handled by _updateWorms
+		if enemy.Type == "Worm" then
 			continue
 		end
 
@@ -1349,6 +1720,19 @@ function EnemyService:_spawnWaveEnemies(wave: number, totalEnemies: number)
 		end
 	end
 
+	-- Spawn worms if unlocked
+	local wormCfg = (GameConfig.Enemies.Types :: any).Worm
+	local wormElapsed = GameService:GetGameElapsed()
+	if wave >= (waveCfg.WormIntroWave or 8) and wormElapsed >= (wormCfg.IntroTime or 180) then
+		local wormCount = math.min(wormCfg.MaxPerWave or 2, maxConcurrent - #_enemies)
+		for _ = 1, wormCount do
+			if #_enemies < maxConcurrent then
+				local positions = ArenaService:GetSpawnPositions(1)
+				self:SpawnWorm(positions[1])
+			end
+		end
+	end
+
 	_spawning = false
 end
 
@@ -1397,6 +1781,7 @@ function EnemyService:_clearAllEnemies()
 		end
 	end
 	table.clear(_enemies)
+	table.clear(_worms)
 end
 
 function EnemyService:GetEnemyFromModel(model: Model): EnemyData?
@@ -1476,6 +1861,7 @@ function EnemyService:KnitStart()
 	-- AI update loop + boss spawn check
 	game:GetService("RunService").Heartbeat:Connect(function(dt: number)
 		self:_updateEnemies(dt)
+		self:_updateWorms(dt)
 		self:_checkBossSpawn()
 	end)
 end

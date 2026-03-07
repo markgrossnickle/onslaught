@@ -182,6 +182,21 @@ local function animateBoss(model: Model, now: number, isMega: boolean)
 	end
 end
 
+local function animateWorm(model: Model, now: number)
+	local body = model.PrimaryPart
+	if not body then
+		return
+	end
+
+	-- Segment pulse: subtle size oscillation
+	local core = model:FindFirstChild("Core") :: BasePart?
+	if core then
+		local pulse = 0.85 + math.sin(now * 4 + body.Position.X * 0.5) * 0.15
+		local baseSize = body.Size * 0.35
+		core.Size = baseSize * pulse
+	end
+end
+
 -------------------------------------------------
 -- MAIN LOOP
 -------------------------------------------------
@@ -233,6 +248,8 @@ function EnemyAnimController:KnitStart()
 				animateBoss(child, now, false)
 			elseif enemyType == "MegaBoss" then
 				animateBoss(child, now, true)
+			elseif enemyType == "Worm" then
+				animateWorm(child, now)
 			end
 		end
 	end)
