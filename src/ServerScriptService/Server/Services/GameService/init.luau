@@ -21,6 +21,7 @@ local GameService = Knit.CreateService({
 		XPGemCollected = Knit.CreateSignal(), -- (amount: number)
 		GameTimerTick = Knit.CreateSignal(), -- (elapsedSeconds: number)
 		GameOverData = Knit.CreateSignal(), -- (data: GameOverData)
+		RespawnCountdown = Knit.CreateSignal(), -- (secondsLeft: number)
 	},
 
 	WaveStarted = Signal.new(),
@@ -57,6 +58,7 @@ export type PlayerStats = {
 	Level: number,
 	Upgrades: { [string]: number }, -- upgradeId -> stack count
 	Kills: number,
+	DeathCount: number,
 	LastDamageTime: number,
 	PendingLevelUps: number, -- queued level-ups waiting for card picks
 }
@@ -127,10 +129,25 @@ function GameService:_endWave()
 	end)
 end
 
+function GameService:GetPlayerCount(): number
+	local count = 0
+	for p in _playerStats do
+		if p.Parent == Players then
+			count += 1
+		end
+	end
+	return math.max(1, count)
+end
+
 function GameService:_startNextWave()
 	_currentWave += 1
 	local cfg = GameConfig.Waves
-	local enemyCount = cfg.BaseEnemyCount + ((_currentWave - 1) * cfg.EnemiesPerWave)
+	local baseCount = cfg.BaseEnemyCount + ((_currentWave - 1) * cfg.EnemiesPerWave)
+
+	-- Scale enemy count by player count
+	local playerCount = self:GetPlayerCount()
+	local countMult = 1.0 + GameConfig.Scaling.EnemyCountPerPlayer * (playerCount - 1)
+	local enemyCount = math.floor(baseCount * countMult)
 	_enemiesRemaining = enemyCount
 
 	self:_setState("Wave")
@@ -179,6 +196,7 @@ function GameService:_initPlayerStats(player: Player): PlayerStats
 		Level = 1,
 		Upgrades = {},
 		Kills = 0,
+		DeathCount = 0,
 		LastDamageTime = 0,
 		PendingLevelUps = 0,
 	}
@@ -239,6 +257,7 @@ function GameService:_onPlayerDied(player: Player)
 	if stats then
 		-- Clear pending level-ups so stale card picks can't apply after death
 		stats.PendingLevelUps = 0
+		stats.DeathCount += 1
 	end
 
 	local char = player.Character
@@ -275,16 +294,70 @@ function GameService:_onPlayerDied(player: Player)
 
 		_running = false
 	else
-		task.delay(GameConfig.Player.RespawnDelay, function()
+		local cfg = GameConfig.Player
+		local deathCount = stats and stats.DeathCount or 1
+		local respawnDelay = math.min(cfg.BaseRespawnDelay + deathCount * cfg.RespawnDelayPerDeath, cfg.MaxRespawnDelay)
+
+		-- Send respawn countdown to the dead player
+		task.spawn(function()
+			for i = respawnDelay, 1, -1 do
+				if player.Parent ~= Players then
+					return
+				end
+				self.Client.RespawnCountdown:Fire(player, i)
+				task.wait(1)
+			end
+		end)
+
+		task.delay(respawnDelay, function()
 			if player.Parent == Players then
 				local respawnStats = _playerStats[player]
 				if respawnStats then
+					-- Level loss on respawn: lose 1 level (min 1), remove a stat upgrade
+					self:_applyRespawnPenalty(respawnStats, player)
 					respawnStats.Health = respawnStats.MaxHealth
 					self:_syncStats(player)
 					self:_respawnPlayer(player)
 				end
 			end
 		end)
+	end
+end
+
+function GameService:_applyRespawnPenalty(stats: PlayerStats, player: Player)
+	if stats.Level <= 1 then
+		return
+	end
+
+	stats.Level -= 1
+
+	-- Remove one stat upgrade stack (prioritize most-stacked stat)
+	local statUpgrades = { "DamageUp", "SpeedUp", "RegenUp", "MagnetUp", "MaxHealthUp" }
+	local bestId: string? = nil
+	local bestStacks = 0
+	for _, id in statUpgrades do
+		local stacks = stats.Upgrades[id] or 0
+		if stacks > bestStacks then
+			bestStacks = stacks
+			bestId = id
+		end
+	end
+
+	if bestId and bestStacks > 0 then
+		stats.Upgrades[bestId] = bestStacks - 1
+		-- Reverse the stat effect
+		if bestId == "DamageUp" then
+			stats.DamageMultiplier = math.max(1.0, stats.DamageMultiplier - 0.25)
+			CombatService:UpdateDamage(player)
+		elseif bestId == "SpeedUp" then
+			stats.WalkSpeed = math.max(GameConfig.Player.BaseWalkSpeed, math.floor(stats.WalkSpeed / 1.2))
+		elseif bestId == "RegenUp" then
+			stats.HealthRegen = math.max(0, stats.HealthRegen - 2)
+		elseif bestId == "MagnetUp" then
+			stats.MagnetRange = math.max(GameConfig.Player.BaseMagnetRange, stats.MagnetRange / 1.5)
+		elseif bestId == "MaxHealthUp" then
+			stats.MaxHealth = math.max(GameConfig.Player.MaxHealth, stats.MaxHealth - 25)
+		end
 	end
 end
 

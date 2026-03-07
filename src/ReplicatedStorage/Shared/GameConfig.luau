@@ -26,10 +26,19 @@ GameConfig.Arena = {
 GameConfig.Player = {
 	MaxHealth = 100,
 	SpawnPosition = Vector3.new(0, 5, 0),
-	RespawnDelay = 3,
+	BaseRespawnDelay = 3,
+	RespawnDelayPerDeath = 2,
+	MaxRespawnDelay = 15,
 	BaseWalkSpeed = 16,
 	InvincibilityTime = 0.5,
 	BaseMagnetRange = 15,
+}
+
+-- Player-count scaling (multiplayer balance)
+GameConfig.Scaling = {
+	EnemyCountPerPlayer = 0.4, -- +40% enemies per extra player
+	EnemyHealthPerPlayer = 0.25, -- +25% enemy HP per extra player
+	BossHealthPerPlayer = 0.5, -- +50% boss HP per extra player
 }
 
 -- Enemies

@@ -628,6 +628,18 @@ function HUDController:KnitStart()
 	GameService.GameOverData:Connect(function(data: any)
 		self:ShowGameOver(data)
 	end)
+
+	-- Respawn countdown
+	GameService.RespawnCountdown:Connect(function(secondsLeft: number)
+		self:ShowStateMessage(`Respawning in {secondsLeft}...`)
+		if secondsLeft <= 1 then
+			task.delay(1, function()
+				if _stateText.Text == "Respawning in 1..." then
+					_stateText.TextTransparency = 1
+				end
+			end)
+		end
+	end)
 end
 
 function HUDController:_showDamageVignette()

@@ -148,6 +148,15 @@ function EnemyService:SpawnEnemy(enemyType: string, position: Vector3): EnemyDat
 	local damageMult = 1 + (wave - 1) * waveCfg.DamageScaling
 	local speedMult = 1 + (wave - 1) * waveCfg.SpeedScaling
 
+	-- Player-count scaling for HP
+	local playerCount = GameService:GetPlayerCount()
+	local scalingCfg = GameConfig.Scaling
+	if enemyType == "Boss" then
+		healthMult *= 1.0 + scalingCfg.BossHealthPerPlayer * (playerCount - 1)
+	else
+		healthMult *= 1.0 + scalingCfg.EnemyHealthPerPlayer * (playerCount - 1)
+	end
+
 	local model = self:_createEnemyModel(enemyType, position)
 
 	local enemyData: EnemyData = {
