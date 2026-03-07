@@ -15,7 +15,7 @@ export type EnemyData = {
 	Damage: number,
 	AttackRange: number,
 	AttackCooldown: number,
-	XPReward: number,
+	XPValue: number,
 	LastAttackTime: number,
 	Target: Player?,
 	Alive: boolean,
@@ -33,7 +33,6 @@ local EnemyService = Knit.CreateService({
 
 local _enemies: { EnemyData } = {}
 local _enemyFolder: Folder = nil :: any
-local _trove: any = nil
 local _spawning: boolean = false
 
 local GameService: any
@@ -159,7 +158,7 @@ function EnemyService:SpawnEnemy(enemyType: string, position: Vector3): EnemyDat
 		Damage = math.floor(cfg.Damage * damageMult),
 		AttackRange = cfg.AttackRange,
 		AttackCooldown = cfg.AttackCooldown,
-		XPReward = cfg.XPReward,
+		XPValue = cfg.XPValue,
 		LastAttackTime = 0,
 		Target = nil,
 		Alive = true,
@@ -223,13 +222,17 @@ function EnemyService:_killEnemy(enemy: EnemyData, killer: Player?)
 	enemy.Alive = false
 	enemy.Health = 0
 
+	-- Drop XP gem at death position
+	local deathPos = Vector3.zero
+	if enemy.Model.PrimaryPart then
+		deathPos = enemy.Model.PrimaryPart.Position
+	end
+
 	self.Client.EnemyKilled:FireAll(enemy.Model, enemy.Type)
 	self.EnemyKilled:Fire(enemy, killer)
 
-	-- Award XP
-	if killer then
-		GameService:AddXP(killer, enemy.XPReward)
-	end
+	-- Spawn XP gem
+	GameService:SpawnXPGem(deathPos, enemy.XPValue)
 
 	GameService:EnemyKilled(killer)
 

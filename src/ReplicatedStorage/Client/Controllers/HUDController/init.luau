@@ -1,6 +1,7 @@
 --!strict
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
@@ -12,19 +13,16 @@ local HUDController = Knit.CreateController({
 	Name = "HUDController",
 })
 
-local _trove: any = nil
 local _screenGui: ScreenGui = nil :: any
-local _healthBar: Frame = nil :: any
 local _healthFill: Frame = nil :: any
 local _healthText: TextLabel = nil :: any
 local _waveText: TextLabel = nil :: any
-local _xpBar: Frame = nil :: any
 local _xpFill: Frame = nil :: any
 local _xpText: TextLabel = nil :: any
 local _killsText: TextLabel = nil :: any
 local _stateText: TextLabel = nil :: any
 local _levelText: TextLabel = nil :: any
-local _upgradeFrame: Frame = nil :: any
+local _cardFrame: Frame = nil :: any
 
 local function createLabel(parent: Instance, props: { [string]: any }): TextLabel
 	local label = Instance.new("TextLabel")
@@ -47,7 +45,7 @@ function HUDController:_buildUI()
 	_screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	_screenGui.Parent = PlayerGui
 
-	-- Health Bar
+	-- Health Bar (bottom left)
 	local healthContainer = Instance.new("Frame")
 	healthContainer.Name = "HealthContainer"
 	healthContainer.Size = UDim2.new(0, 300, 0, 30)
@@ -80,9 +78,7 @@ function HUDController:_buildUI()
 		ZIndex = 2,
 	})
 
-	_healthBar = healthContainer
-
-	-- XP Bar
+	-- XP Bar (bottom left, above health)
 	local xpContainer = Instance.new("Frame")
 	xpContainer.Name = "XPContainer"
 	xpContainer.Size = UDim2.new(0, 300, 0, 14)
@@ -115,8 +111,6 @@ function HUDController:_buildUI()
 		ZIndex = 2,
 	})
 
-	_xpBar = xpContainer
-
 	-- Level text
 	_levelText = createLabel(_screenGui, {
 		Name = "LevelText",
@@ -138,16 +132,16 @@ function HUDController:_buildUI()
 		Font = Enum.Font.GothamBlack,
 	})
 
-	-- State text (center)
+	-- State text (upper center, for announcements)
 	_stateText = createLabel(_screenGui, {
 		Name = "StateText",
 		Size = UDim2.new(0, 600, 0, 60),
-		Position = UDim2.new(0.5, -300, 0.3, 0),
+		Position = UDim2.new(0.5, -300, 0.25, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "",
 		TextSize = 36,
 		Font = Enum.Font.GothamBlack,
-		TextTransparency = 0,
+		TextTransparency = 1,
 	})
 
 	-- Kills (top right)
@@ -160,96 +154,114 @@ function HUDController:_buildUI()
 		TextSize = 20,
 	})
 
-	-- Crosshair (center dot)
-	local crosshair = Instance.new("Frame")
-	crosshair.Name = "Crosshair"
-	crosshair.Size = UDim2.new(0, 6, 0, 6)
-	crosshair.Position = UDim2.new(0.5, -3, 0.5, -3)
-	crosshair.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-	crosshair.BackgroundTransparency = 0.3
-	crosshair.BorderSizePixel = 0
-	crosshair.Parent = _screenGui
-
-	local crossCorner = Instance.new("UICorner")
-	crossCorner.CornerRadius = UDim.new(1, 0)
-	crossCorner.Parent = crosshair
-
-	-- Upgrade frame (center, hidden by default)
-	self:_buildUpgradeUI()
+	-- Level-up card picker frame (hidden by default)
+	self:_buildCardFrame()
 end
 
-function HUDController:_buildUpgradeUI()
-	_upgradeFrame = Instance.new("Frame")
-	_upgradeFrame.Name = "UpgradeFrame"
-	_upgradeFrame.Size = UDim2.new(0, 500, 0, 400)
-	_upgradeFrame.Position = UDim2.new(0.5, -250, 0.5, -200)
-	_upgradeFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-	_upgradeFrame.BackgroundTransparency = 0.1
-	_upgradeFrame.BorderSizePixel = 0
-	_upgradeFrame.Visible = false
-	_upgradeFrame.Parent = _screenGui
+function HUDController:_buildCardFrame()
+	_cardFrame = Instance.new("Frame")
+	_cardFrame.Name = "CardFrame"
+	_cardFrame.Size = UDim2.new(1, 0, 1, 0)
+	_cardFrame.Position = UDim2.new(0, 0, 0, 0)
+	_cardFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	_cardFrame.BackgroundTransparency = 0.5
+	_cardFrame.BorderSizePixel = 0
+	_cardFrame.Visible = false
+	_cardFrame.ZIndex = 50
+	_cardFrame.Parent = _screenGui
 
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 12)
-	corner.Parent = _upgradeFrame
-
-	createLabel(_upgradeFrame, {
+	createLabel(_cardFrame, {
 		Name = "Title",
-		Size = UDim2.new(1, 0, 0, 40),
-		Position = UDim2.new(0, 0, 0, 10),
+		Size = UDim2.new(1, 0, 0, 50),
+		Position = UDim2.new(0, 0, 0.15, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
-		Text = "UPGRADES",
-		TextSize = 24,
+		Text = "LEVEL UP! Choose an upgrade:",
+		TextSize = 30,
 		Font = Enum.Font.GothamBlack,
+		TextColor3 = Color3.fromRGB(255, 220, 50),
+		ZIndex = 51,
 	})
+end
 
-	createLabel(_upgradeFrame, {
-		Name = "PointsText",
-		Size = UDim2.new(1, 0, 0, 25),
-		Position = UDim2.new(0, 0, 0, 50),
-		TextXAlignment = Enum.TextXAlignment.Center,
-		Text = "Points: 0",
-		TextSize = 16,
-		TextColor3 = Color3.fromRGB(200, 200, 100),
-	})
+function HUDController:ShowUpgradeCards(cards: { { Id: string, Name: string, Description: string } })
+	-- Clear old cards
+	for _, child in _cardFrame:GetChildren() do
+		if child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
 
-	local listLayout = Instance.new("UIListLayout")
-	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	listLayout.Padding = UDim.new(0, 8)
+	_cardFrame.Visible = true
 
-	local itemsFrame = Instance.new("Frame")
-	itemsFrame.Name = "Items"
-	itemsFrame.Size = UDim2.new(1, -40, 1, -100)
-	itemsFrame.Position = UDim2.new(0, 20, 0, 85)
-	itemsFrame.BackgroundTransparency = 1
-	itemsFrame.Parent = _upgradeFrame
-	listLayout.Parent = itemsFrame
+	local cardWidth = 160
+	local cardHeight = 200
+	local gap = 20
+	local totalWidth = #cards * cardWidth + (#cards - 1) * gap
+	local startX = -totalWidth / 2
 
-	-- Create upgrade buttons
-	local order = 0
-	for upgradeId, cfg in GameConfig.Upgrades :: any do
-		order += 1
+	for i, card in cards do
 		local btn = Instance.new("TextButton")
-		btn.Name = upgradeId
-		btn.Size = UDim2.new(1, 0, 0, 60)
-		btn.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+		btn.Name = card.Id
+		btn.Size = UDim2.new(0, cardWidth, 0, cardHeight)
+		btn.Position = UDim2.new(0.5, startX + (i - 1) * (cardWidth + gap), 0.5, -cardHeight / 2)
+		btn.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
 		btn.BorderSizePixel = 0
-		btn.LayoutOrder = order
-		btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-		btn.Font = Enum.Font.GothamBold
-		btn.TextSize = 16
-		btn.Text = `{cfg.Name}\n{cfg.Description}`
-		btn.Parent = itemsFrame
+		btn.Text = ""
+		btn.AutoButtonColor = true
+		btn.ZIndex = 52
+		btn.Parent = _cardFrame
 
 		local btnCorner = Instance.new("UICorner")
-		btnCorner.CornerRadius = UDim.new(0, 8)
+		btnCorner.CornerRadius = UDim.new(0, 12)
 		btnCorner.Parent = btn
 
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = Color3.fromRGB(100, 100, 200)
+		stroke.Thickness = 2
+		stroke.Parent = btn
+
+		-- Card name
+		local nameLabel = Instance.new("TextLabel")
+		nameLabel.Size = UDim2.new(1, -16, 0, 40)
+		nameLabel.Position = UDim2.new(0, 8, 0, 20)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.Text = card.Name
+		nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		nameLabel.Font = Enum.Font.GothamBlack
+		nameLabel.TextSize = 18
+		nameLabel.TextWrapped = true
+		nameLabel.ZIndex = 53
+		nameLabel.Parent = btn
+
+		-- Card description
+		local descLabel = Instance.new("TextLabel")
+		descLabel.Size = UDim2.new(1, -16, 0, 80)
+		descLabel.Position = UDim2.new(0, 8, 0, 80)
+		descLabel.BackgroundTransparency = 1
+		descLabel.Text = card.Description
+		descLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
+		descLabel.Font = Enum.Font.GothamBold
+		descLabel.TextSize = 14
+		descLabel.TextWrapped = true
+		descLabel.ZIndex = 53
+		descLabel.Parent = btn
+
 		btn.MouseButton1Click:Connect(function()
+			_cardFrame.Visible = false
 			local GameService = Knit.GetService("GameService")
-			GameService:RequestUpgrade(upgradeId):catch(function(err)
-				warn("Upgrade failed:", err)
+			GameService:PickUpgradeCard(card.Id):catch(function(err)
+				warn("Card pick failed:", err)
 			end)
+		end)
+
+		-- Hover effect
+		btn.MouseEnter:Connect(function()
+			btn.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
+			stroke.Color = Color3.fromRGB(180, 180, 255)
+		end)
+		btn.MouseLeave:Connect(function()
+			btn.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
+			stroke.Color = Color3.fromRGB(100, 100, 200)
 		end)
 	end
 end
@@ -284,16 +296,6 @@ function HUDController:UpdateStats(stats: any)
 
 	-- Kills
 	_killsText.Text = `Kills: {stats.Kills}`
-
-	-- Upgrade points display
-	local pointsLabel = _upgradeFrame:FindFirstChild("PointsText", true)
-	if pointsLabel then
-		(pointsLabel :: TextLabel).Text = `Upgrade Points: {stats.UpgradePoints}`
-	end
-end
-
-function HUDController:ShowUpgradeMenu(show: boolean)
-	_upgradeFrame.Visible = show
 end
 
 function HUDController:ShowStateMessage(text: string, duration: number?)
@@ -331,14 +333,13 @@ function HUDController:KnitStart()
 	-- Game state changes
 	GameService.GameStateChanged:Connect(function(state: string, wave: number)
 		if state == "Wave" then
-			self:ShowUpgradeMenu(false)
+			_cardFrame.Visible = false
 			self:ShowStateMessage(`Wave {wave}`, 2)
 			_waveText.Text = `Wave {wave}`
 		elseif state == "Intermission" then
-			self:ShowUpgradeMenu(true)
-			self:ShowStateMessage("Intermission - Buy Upgrades!", 3)
+			self:ShowStateMessage("Wave cleared!", 2)
 		elseif state == "GameOver" then
-			self:ShowUpgradeMenu(false)
+			_cardFrame.Visible = false
 			self:ShowStateMessage("GAME OVER", 3)
 		end
 	end)
@@ -358,6 +359,11 @@ function HUDController:KnitStart()
 	GameService.PlayerDamaged:Connect(function(_damage: number)
 		self:_showDamageVignette()
 	end)
+
+	-- Level-up upgrade cards
+	GameService.ShowUpgradeCards:Connect(function(cards: any)
+		self:ShowUpgradeCards(cards)
+	end)
 end
 
 function HUDController:_showDamageVignette()
@@ -374,7 +380,6 @@ function HUDController:_showDamageVignette()
 	task.spawn(function()
 		local elapsed = 0
 		local duration = 0.3
-		local RunService = game:GetService("RunService")
 		while elapsed < duration do
 			local dt = RunService.RenderStepped:Wait()
 			elapsed += dt

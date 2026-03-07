@@ -1,7 +1,10 @@
 --!strict
+--[=[
+	Client-side VFX for auto-attack weapons + isometric camera.
+	No manual attack input — all combat is automatic.
+]=]
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
@@ -13,169 +16,43 @@ local CombatController = Knit.CreateController({
 	Name = "CombatController",
 })
 
-local _lastAttackTime: number = 0
+-------------------------------------------------
+-- ISOMETRIC CAMERA
+-------------------------------------------------
 
-function CombatController:_createSwordVisual()
-	-- Create a simple sword tool visual attached to character
-	local function setupCharacter(character: Model)
-		task.defer(function()
-			local rightArm = character:WaitForChild("Right Arm", 5) or character:WaitForChild("RightHand", 5)
-			if not rightArm then
-				return
-			end
-
-			local sword = Instance.new("Part")
-			sword.Name = "SwordVisual"
-			sword.Size = Vector3.new(0.4, 4, 0.4)
-			sword.Color = Color3.fromRGB(180, 180, 200)
-			sword.Material = Enum.Material.Metal
-			sword.CanCollide = false
-			sword.Massless = true
-			sword.Anchored = false
-
-			local weld = Instance.new("WeldConstraint")
-			weld.Part0 = rightArm :: BasePart
-			weld.Part1 = sword
-			weld.Parent = sword
-
-			sword.CFrame = (rightArm :: BasePart).CFrame * CFrame.new(0, -2.5, 0)
-			sword.Parent = character
-		end)
-	end
-
-	if Player.Character then
-		setupCharacter(Player.Character)
-	end
-	Player.CharacterAdded:Connect(setupCharacter)
-end
-
-function CombatController:_attack()
-	local now = tick()
-	local weapon = GameConfig.Weapons.Sword
-
-	if (now - _lastAttackTime) < weapon.SwingCooldown then
-		return
-	end
-	_lastAttackTime = now
-
-	-- Fire to server
-	local CombatService = Knit.GetService("CombatService")
-	CombatService:Attack()
-
-	-- Swing animation (simple camera shake + visual)
-	self:_playSwingEffect()
-end
-
-function CombatController:_playSwingEffect()
-	local char = Player.Character
-	if not char then
-		return
-	end
-	local sword = char:FindFirstChild("SwordVisual") :: BasePart?
-	if not sword then
-		return
-	end
-
-	-- Brief color flash on the sword
-	local origColor = sword.Color
-	sword.Color = Color3.fromRGB(255, 255, 255)
-	task.delay(0.1, function()
-		if sword and sword.Parent then
-			sword.Color = origColor
-		end
-	end)
-
-	-- Camera shake
+function CombatController:_setupCamera()
+	local camCfg = GameConfig.Camera
 	local camera = workspace.CurrentCamera
-	if camera then
-		task.spawn(function()
-			local intensity = 0.3
-			for _ = 1, 3 do
-				local offset =
-					CFrame.Angles((math.random() - 0.5) * intensity * 0.02, (math.random() - 0.5) * intensity * 0.02, 0)
-				camera.CFrame = camera.CFrame * offset
-				RunService.RenderStepped:Wait()
-			end
-		end)
+	if not camera then
+		return
 	end
-end
 
-function CombatController:KnitInit() end
+	camera.CameraType = Enum.CameraType.Scriptable
+	camera.FieldOfView = camCfg.FieldOfView
 
-function CombatController:KnitStart()
-	local CombatService = Knit.GetService("CombatService")
-	local EnemyService = Knit.GetService("EnemyService")
-
-	-- Mouse click / tap to attack
-	UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
-		if gameProcessed then
+	RunService.RenderStepped:Connect(function(_dt)
+		local char = Player.Character
+		if not char then
 			return
 		end
-		if
-			input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch
-		then
-			self:_attack()
+		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if not root then
+			return
 		end
-	end)
 
-	-- Sword visual
-	self:_createSwordVisual()
-
-	-- Listen for attack results (hit feedback)
-	CombatService.AttackResult:Connect(function(hitCount: number, position: Vector3, direction: Vector3)
-		if hitCount > 0 then
-			self:_playHitEffect(position, direction)
-		end
-	end)
-
-	-- Enemy hit VFX
-	EnemyService.EnemyDamaged:Connect(function(model: Model, damage: number, position: Vector3)
-		self:_showDamageNumber(position, damage)
-		self:_flashEnemy(model)
-	end)
-
-	-- Enemy death VFX
-	EnemyService.EnemyKilled:Connect(function(model: Model, _enemyType: string)
-		if model and model.PrimaryPart then
-			self:_playDeathEffect(model.PrimaryPart.Position, model.PrimaryPart.Color)
-		end
+		local angleRad = math.rad(camCfg.Angle)
+		local offset = Vector3.new(0, math.sin(angleRad) * camCfg.Distance, math.cos(angleRad) * camCfg.Distance)
+		local targetPos = root.Position
+		camera.CFrame = CFrame.lookAt(targetPos + offset, targetPos)
 	end)
 end
 
-function CombatController:_playHitEffect(position: Vector3, _direction: Vector3)
-	-- Small particle burst at hit location
-	local part = Instance.new("Part")
-	part.Size = Vector3.new(0.5, 0.5, 0.5)
-	part.Position = position
-	part.Anchored = true
-	part.CanCollide = false
-	part.Transparency = 1
-	part.Parent = workspace
-
-	local emitter = Instance.new("ParticleEmitter")
-	emitter.Color = ColorSequence.new(Color3.fromRGB(255, 200, 50))
-	emitter.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0) })
-	emitter.Lifetime = NumberRange.new(0.2, 0.4)
-	emitter.Speed = NumberRange.new(10, 20)
-	emitter.SpreadAngle = Vector2.new(180, 180)
-	emitter.Rate = 0
-	emitter.Parent = part
-
-	emitter:Emit(8)
-
-	task.delay(1, function()
-		part:Destroy()
-	end)
-end
+-------------------------------------------------
+-- VFX (damage numbers, hit flash, death particles)
+-------------------------------------------------
 
 function CombatController:_showDamageNumber(position: Vector3, damage: number)
 	local cfg = GameConfig.VFX
-
-	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.new(0, 100, 0, 40)
-	billboard.StudsOffset = Vector3.new(0, 3, 0)
-	billboard.AlwaysOnTop = true
 
 	local attachment = Instance.new("Part")
 	attachment.Size = Vector3.new(0.1, 0.1, 0.1)
@@ -185,6 +62,10 @@ function CombatController:_showDamageNumber(position: Vector3, damage: number)
 	attachment.Transparency = 1
 	attachment.Parent = workspace
 
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.new(0, 100, 0, 40)
+	billboard.StudsOffset = Vector3.new(0, 3, 0)
+	billboard.AlwaysOnTop = true
 	billboard.Parent = attachment
 
 	local label = Instance.new("TextLabel")
@@ -198,7 +79,6 @@ function CombatController:_showDamageNumber(position: Vector3, damage: number)
 	label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 	label.Parent = billboard
 
-	-- Animate upward and fade
 	task.spawn(function()
 		local elapsed = 0
 		local lifetime = cfg.DamageNumberLifetime
@@ -239,7 +119,6 @@ end
 function CombatController:_playDeathEffect(position: Vector3, color: Color3)
 	local cfg = GameConfig.VFX
 
-	-- Burst of parts
 	for _ = 1, cfg.DeathParticleCount do
 		local part = Instance.new("Part")
 		part.Size = Vector3.new(math.random() * 1.5 + 0.3, math.random() * 1.5 + 0.3, math.random() * 1.5 + 0.3)
@@ -252,7 +131,6 @@ function CombatController:_playDeathEffect(position: Vector3, color: Color3)
 
 		part:ApplyImpulse(Vector3.new((math.random() - 0.5) * 80, math.random() * 60 + 20, (math.random() - 0.5) * 80))
 
-		-- Fade and destroy
 		task.delay(1.5, function()
 			if part and part.Parent then
 				game:GetService("TweenService"):Create(part, TweenInfo.new(0.5), { Transparency = 1 }):Play()
@@ -262,6 +140,73 @@ function CombatController:_playDeathEffect(position: Vector3, color: Color3)
 			end
 		end)
 	end
+end
+
+function CombatController:_playGemCollectEffect()
+	-- Brief green flash around player
+	local char = Player.Character
+	if not char then
+		return
+	end
+	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then
+		return
+	end
+
+	local flash = Instance.new("Part")
+	flash.Shape = Enum.PartType.Ball
+	flash.Size = Vector3.one * 4
+	flash.Color = GameConfig.XPGems.GlowColor
+	flash.Material = Enum.Material.Neon
+	flash.Anchored = true
+	flash.CanCollide = false
+	flash.CastShadow = false
+	flash.Transparency = 0.5
+	flash.Position = root.Position
+	flash.Parent = workspace
+
+	task.spawn(function()
+		local elapsed = 0
+		while elapsed < 0.25 do
+			local dt = RunService.RenderStepped:Wait()
+			elapsed += dt
+			flash.Transparency = 0.5 + (elapsed / 0.25) * 0.5
+			flash.Size = Vector3.one * (4 + elapsed * 12)
+		end
+		flash:Destroy()
+	end)
+end
+
+-------------------------------------------------
+-- LIFECYCLE
+-------------------------------------------------
+
+function CombatController:KnitInit() end
+
+function CombatController:KnitStart()
+	local EnemyService = Knit.GetService("EnemyService")
+	local GameService = Knit.GetService("GameService")
+
+	-- Isometric camera
+	self:_setupCamera()
+
+	-- Enemy hit VFX
+	EnemyService.EnemyDamaged:Connect(function(model: Model, damage: number, position: Vector3)
+		self:_showDamageNumber(position, damage)
+		self:_flashEnemy(model)
+	end)
+
+	-- Enemy death VFX
+	EnemyService.EnemyKilled:Connect(function(model: Model, _enemyType: string)
+		if model and model.PrimaryPart then
+			self:_playDeathEffect(model.PrimaryPart.Position, model.PrimaryPart.Color)
+		end
+	end)
+
+	-- XP gem collect VFX
+	GameService.XPGemCollected:Connect(function(_amount: number)
+		self:_playGemCollectEffect()
+	end)
 end
 
 return CombatController

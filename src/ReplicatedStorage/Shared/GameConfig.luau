@@ -1,7 +1,7 @@
 --!strict
 --[=[
 	@class GameConfig
-	Central tuning constants for Onslaught.
+	Central tuning constants for Onslaught (Vampire Survivors style).
 ]=]
 
 local GameConfig = {}
@@ -19,7 +19,7 @@ GameConfig.Arena = {
 	ObstacleMinSize = Vector3.new(4, 6, 4),
 	ObstacleMaxSize = Vector3.new(10, 10, 10),
 	ObstacleColor = Color3.fromRGB(80, 80, 85),
-	ObstacleSpawnMargin = 15, -- min distance from center
+	ObstacleSpawnMargin = 15,
 }
 
 -- Player
@@ -28,13 +28,13 @@ GameConfig.Player = {
 	SpawnPosition = Vector3.new(0, 5, 0),
 	RespawnDelay = 3,
 	BaseWalkSpeed = 16,
-	BaseDamage = 25,
-	InvincibilityTime = 0.5, -- seconds of i-frames after taking damage
+	InvincibilityTime = 0.5,
+	BaseMagnetRange = 15, -- studs to start pulling XP gems
 }
 
 -- Enemies
 GameConfig.Enemies = {
-	SpawnDistance = 90, -- distance from center to spawn
+	SpawnDistance = 90,
 	SpawnHeight = 3,
 
 	Types = {
@@ -46,7 +46,7 @@ GameConfig.Enemies = {
 			AttackCooldown = 1.0,
 			Color = Color3.fromRGB(200, 50, 50),
 			Size = Vector3.new(4, 5, 3),
-			XPReward = 10,
+			XPValue = 10,
 		},
 		Brute = {
 			Health = 150,
@@ -56,7 +56,7 @@ GameConfig.Enemies = {
 			AttackCooldown = 1.5,
 			Color = Color3.fromRGB(150, 30, 30),
 			Size = Vector3.new(6, 7, 5),
-			XPReward = 25,
+			XPValue = 25,
 		},
 		Dasher = {
 			Health = 40,
@@ -66,82 +66,145 @@ GameConfig.Enemies = {
 			AttackCooldown = 0.8,
 			Color = Color3.fromRGB(220, 100, 30),
 			Size = Vector3.new(3, 4, 3),
-			XPReward = 15,
+			XPValue = 15,
 		},
 	},
 }
 
 -- Waves
 GameConfig.Waves = {
-	IntermissionTime = 8, -- seconds between waves
-	BaseEnemyCount = 4,
-	EnemiesPerWave = 2, -- additional enemies each wave
-	MaxConcurrentEnemies = 30,
-	SpawnInterval = 1.2, -- seconds between spawns within a wave
+	IntermissionTime = 5, -- shorter, no shop anymore
+	BaseEnemyCount = 5,
+	EnemiesPerWave = 3,
+	MaxConcurrentEnemies = 40,
+	SpawnInterval = 1.0,
 
-	-- Wave thresholds for introducing enemy types
 	BruteIntroWave = 3,
 	DasherIntroWave = 5,
 
-	-- Scaling per wave
-	HealthScaling = 0.08, -- +8% HP per wave
-	DamageScaling = 0.05, -- +5% damage per wave
-	SpeedScaling = 0.02, -- +2% speed per wave
+	HealthScaling = 0.08,
+	DamageScaling = 0.05,
+	SpeedScaling = 0.02,
 }
 
--- Weapons
+-- Auto-Attack Weapons
 GameConfig.Weapons = {
-	Sword = {
-		Name = "Sword",
-		Damage = 25,
-		Range = 8,
-		SwingCooldown = 0.5,
-		ArcAngle = 90, -- degrees
-		KnockbackForce = 30,
+	Orbiter = {
+		Name = "Orbiter",
+		Damage = 12,
+		OrbitRadius = 8,
+		OrbitSpeed = 3.0, -- radians per second
+		SphereSize = 1.8,
+		Color = Color3.fromRGB(100, 180, 255),
+		HitCooldown = 0.5, -- per-enemy cooldown
+		InitialCount = 2,
 	},
+	Projectile = {
+		Name = "Projectile",
+		Damage = 20,
+		Speed = 80,
+		FireInterval = 1.5,
+		BulletSize = Vector3.new(0.8, 0.8, 1.6),
+		Color = Color3.fromRGB(255, 220, 50),
+		Range = 60,
+		Pierce = 1, -- how many enemies one bullet hits
+	},
+}
+
+-- XP Gems
+GameConfig.XPGems = {
+	Size = Vector3.new(1.2, 1.2, 1.2),
+	Color = Color3.fromRGB(80, 255, 120),
+	GlowColor = Color3.fromRGB(120, 255, 160),
+	MagnetSpeed = 60, -- studs/sec when being pulled
+	Lifetime = 30, -- seconds before despawn
 }
 
 -- XP / Leveling
 GameConfig.XP = {
 	BaseXPToLevel = 50,
-	XPScaling = 1.3, -- multiplier per level
+	XPScaling = 1.3,
 	MaxLevel = 50,
 }
 
--- Upgrades (purchased between waves)
-GameConfig.Upgrades = {
-	MaxHealthUp = {
-		Name = "Max Health Up",
-		Description = "+20 Max Health",
-		BaseCost = 30,
-		CostScaling = 1.5,
-		MaxStacks = 10,
-		Effect = { Stat = "MaxHealth", Value = 20 },
+-- Level-Up Upgrade Cards
+GameConfig.UpgradeCards = {
+	CardsOffered = 3, -- number of cards to pick from
+
+	Options = {
+		{
+			Id = "NewProjectile",
+			Name = "Projectile",
+			Description = "Gain auto-firing projectile weapon",
+			MaxStacks = 1,
+			Type = "Weapon",
+		},
+		{
+			Id = "OrbiterCount",
+			Name = "+1 Orbiter",
+			Description = "Add another orbiting sphere",
+			MaxStacks = 4,
+			Type = "WeaponUpgrade",
+		},
+		{
+			Id = "DamageUp",
+			Name = "Damage +25%",
+			Description = "All weapons deal 25% more damage",
+			MaxStacks = 8,
+			Type = "Stat",
+		},
+		{
+			Id = "SpeedUp",
+			Name = "Move Speed +20%",
+			Description = "Move 20% faster",
+			MaxStacks = 5,
+			Type = "Stat",
+		},
+		{
+			Id = "RegenUp",
+			Name = "Regen +2/s",
+			Description = "Regenerate 2 HP per second",
+			MaxStacks = 5,
+			Type = "Stat",
+		},
+		{
+			Id = "MagnetUp",
+			Name = "Magnet +50%",
+			Description = "XP gem pickup range +50%",
+			MaxStacks = 5,
+			Type = "Stat",
+		},
+		{
+			Id = "MaxHealthUp",
+			Name = "Max HP +25",
+			Description = "Increase maximum health by 25",
+			MaxStacks = 8,
+			Type = "Stat",
+		},
+		{
+			Id = "ProjectilePierce",
+			Name = "Pierce +1",
+			Description = "Projectiles hit one more enemy",
+			MaxStacks = 4,
+			RequiresWeapon = "Projectile",
+			Type = "WeaponUpgrade",
+		},
+		{
+			Id = "ProjectileSpeed",
+			Name = "Fire Rate Up",
+			Description = "Projectiles fire 20% faster",
+			MaxStacks = 4,
+			RequiresWeapon = "Projectile",
+			Type = "WeaponUpgrade",
+		},
 	},
-	DamageUp = {
-		Name = "Damage Up",
-		Description = "+10% Damage",
-		BaseCost = 40,
-		CostScaling = 1.5,
-		MaxStacks = 10,
-		Effect = { Stat = "DamageMultiplier", Value = 0.10 },
-	},
-	SpeedUp = {
-		Name = "Speed Up",
-		Description = "+2 Walk Speed",
-		BaseCost = 25,
-		CostScaling = 1.4,
-		MaxStacks = 5,
-		Effect = { Stat = "WalkSpeed", Value = 2 },
-	},
-	RegenUp = {
-		Name = "Regen Up",
-		Description = "+2 HP/sec",
-		BaseCost = 35,
-		CostScaling = 1.6,
-		MaxStacks = 5,
-		Effect = { Stat = "HealthRegen", Value = 2 },
-	},
+}
+
+-- Camera
+GameConfig.Camera = {
+	Distance = 50, -- studs above player
+	Angle = 60, -- degrees from horizontal (60 = mostly top-down)
+	FieldOfView = 50,
 }
 
 -- VFX

@@ -11,12 +11,12 @@ local SoundController = Knit.CreateController({
 local _sounds: { [string]: Sound } = {}
 
 local SOUND_IDS = {
-	Swing = "rbxassetid://12222208",
 	Hit = "rbxassetid://12222216",
 	EnemyDeath = "rbxassetid://12222230",
 	PlayerHurt = "rbxassetid://12222242",
 	LevelUp = "rbxassetid://12222253",
 	WaveStart = "rbxassetid://12222261",
+	GemCollect = "rbxassetid://12222208",
 }
 
 function SoundController:_createSounds()
@@ -29,9 +29,8 @@ function SoundController:_createSounds()
 		_sounds[name] = sound
 	end
 
-	-- Adjust volumes
-	if _sounds.Swing then
-		_sounds.Swing.Volume = 0.3
+	if _sounds.GemCollect then
+		_sounds.GemCollect.Volume = 0.2
 	end
 	if _sounds.Hit then
 		_sounds.Hit.Volume = 0.4
@@ -43,7 +42,6 @@ function SoundController:Play(name: string, volumeOverride: number?)
 	if not sound then
 		return
 	end
-	-- Clone for overlapping plays
 	local clone = sound:Clone()
 	if volumeOverride then
 		clone.Volume = volumeOverride
@@ -53,7 +51,6 @@ function SoundController:Play(name: string, volumeOverride: number?)
 	clone.Ended:Once(function()
 		clone:Destroy()
 	end)
-	-- Safety cleanup
 	task.delay(5, function()
 		if clone and clone.Parent then
 			clone:Destroy()
@@ -67,17 +64,11 @@ end
 
 function SoundController:KnitStart()
 	local GameService = Knit.GetService("GameService")
-	local CombatService = Knit.GetService("CombatService")
 	local EnemyService = Knit.GetService("EnemyService")
 
-	-- Attack swing
-	CombatService.AttackResult:Connect(function(hitCount: number, _position: Vector3, _direction: Vector3)
-		self:Play("Swing")
-		if hitCount > 0 then
-			task.delay(0.05, function()
-				self:Play("Hit")
-			end)
-		end
+	-- Enemy hit
+	EnemyService.EnemyDamaged:Connect(function(_model: Model, _damage: number, _position: Vector3)
+		self:Play("Hit", 0.15)
 	end)
 
 	-- Enemy death
@@ -95,6 +86,16 @@ function SoundController:KnitStart()
 		if state == "Wave" then
 			self:Play("WaveStart")
 		end
+	end)
+
+	-- XP gem collected
+	GameService.XPGemCollected:Connect(function(_amount: number)
+		self:Play("GemCollect")
+	end)
+
+	-- Level up
+	GameService.ShowUpgradeCards:Connect(function(_cards: any)
+		self:Play("LevelUp")
 	end)
 end
 

@@ -1,5 +1,6 @@
 --!strict
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
@@ -16,12 +17,14 @@ local GameService = Knit.CreateService({
 		IntermissionTick = Knit.CreateSignal(),
 		PlayerStatsChanged = Knit.CreateSignal(),
 		PlayerDamaged = Knit.CreateSignal(),
+		ShowUpgradeCards = Knit.CreateSignal(), -- (cards: {{Id, Name, Description}})
+		XPGemCollected = Knit.CreateSignal(), -- (amount: number)
 	},
 
-	-- Signals
 	WaveStarted = Signal.new(),
 	WaveEnded = Signal.new(),
 	GameStateChanged = Signal.new(),
+	PlayerLeveledUp = Signal.new(), -- (player)
 })
 
 -- State
@@ -37,15 +40,27 @@ export type PlayerStats = {
 	DamageMultiplier: number,
 	WalkSpeed: number,
 	HealthRegen: number,
+	MagnetRange: number,
 	XP: number,
 	Level: number,
-	UpgradePoints: number,
-	Upgrades: { [string]: number },
+	Upgrades: { [string]: number }, -- upgradeId -> stack count
 	Kills: number,
 	LastDamageTime: number,
+	PendingLevelUps: number, -- queued level-ups waiting for card picks
 }
 
 local _playerStats: { [Player]: PlayerStats } = {}
+
+-- XP Gems in the world
+export type XPGem = {
+	Part: BasePart,
+	Value: number,
+	SpawnTime: number,
+}
+local _xpGems: { XPGem } = {}
+local _gemFolder: Folder = nil :: any
+
+local CombatService: any
 
 function GameService:GetState(): GameState
 	return _state
@@ -86,15 +101,6 @@ function GameService:_endWave()
 	self:_setState("Intermission")
 	self.WaveEnded:Fire(_currentWave)
 
-	-- Grant upgrade points
-	for player, stats in _playerStats do
-		if player.Parent == Players then
-			stats.UpgradePoints += 1
-			self:_syncStats(player)
-		end
-	end
-
-	-- Intermission countdown
 	task.spawn(function()
 		for i = GameConfig.Waves.IntermissionTime, 1, -1 do
 			if _state ~= "Intermission" then
@@ -127,7 +133,6 @@ function GameService:StartGame()
 	_running = true
 	_currentWave = 0
 
-	-- Heal all players
 	for player, stats in _playerStats do
 		if player.Parent == Players then
 			stats.Health = stats.MaxHealth
@@ -151,12 +156,13 @@ function GameService:_initPlayerStats(player: Player): PlayerStats
 		DamageMultiplier = 1.0,
 		WalkSpeed = cfg.BaseWalkSpeed,
 		HealthRegen = 0,
+		MagnetRange = cfg.BaseMagnetRange,
 		XP = 0,
 		Level = 1,
-		UpgradePoints = 0,
 		Upgrades = {},
 		Kills = 0,
 		LastDamageTime = 0,
+		PendingLevelUps = 0,
 	}
 	_playerStats[player] = stats
 	return stats
@@ -167,7 +173,6 @@ function GameService:_syncStats(player: Player)
 	if stats and player.Parent == Players then
 		self.Client.PlayerStatsChanged:Fire(player, stats)
 
-		-- Apply walkspeed to character
 		local char = player.Character
 		if char then
 			local humanoid = char:FindFirstChildOfClass("Humanoid")
@@ -187,7 +192,6 @@ function GameService:DamagePlayer(player: Player, damage: number)
 		return
 	end
 
-	-- Invincibility frames
 	local now = tick()
 	if (now - stats.LastDamageTime) < GameConfig.Player.InvincibilityTime then
 		return
@@ -221,7 +225,6 @@ function GameService:_onPlayerDied(player: Player)
 		end
 	end
 
-	-- Check if all players are dead
 	local allDead = true
 	for p, s in _playerStats do
 		if p.Parent == Players and s.Health > 0 then
@@ -233,12 +236,13 @@ function GameService:_onPlayerDied(player: Player)
 	if allDead then
 		self:_setState("GameOver")
 		task.wait(3)
-		-- Reset and restart
 		_running = false
 		_currentWave = 0
+		self:_clearAllGems()
 		for p, _s in _playerStats do
 			if p.Parent == Players then
 				self:_initPlayerStats(p)
+				CombatService:ResetPlayer(p)
 				self:_syncStats(p)
 				self:_respawnPlayer(p)
 			end
@@ -247,7 +251,6 @@ function GameService:_onPlayerDied(player: Player)
 		task.wait(2)
 		self:StartGame()
 	else
-		-- Respawn after delay
 		task.delay(GameConfig.Player.RespawnDelay, function()
 			if player.Parent == Players then
 				local stats = _playerStats[player]
@@ -285,6 +288,117 @@ function GameService:_respawnPlayer(player: Player)
 	end)
 end
 
+-------------------------------------------------
+-- XP GEMS
+-------------------------------------------------
+
+function GameService:SpawnXPGem(position: Vector3, value: number)
+	local cfg = GameConfig.XPGems
+
+	local part = Instance.new("Part")
+	part.Name = "XPGem"
+	part.Shape = Enum.PartType.Ball
+	part.Size = cfg.Size
+	part.Color = cfg.Color
+	part.Material = Enum.Material.Neon
+	part.Anchored = true
+	part.CanCollide = false
+	part.CastShadow = false
+	part.Position = position + Vector3.new(0, 1.5, 0)
+	part.Parent = _gemFolder
+
+	local gem: XPGem = {
+		Part = part,
+		Value = value,
+		SpawnTime = tick(),
+	}
+	table.insert(_xpGems, gem)
+end
+
+function GameService:_updateXPGems(dt: number)
+	local now = tick()
+	local toRemove: { number } = {}
+
+	for i, gem in _xpGems do
+		if not gem.Part or not gem.Part.Parent then
+			table.insert(toRemove, i)
+			continue
+		end
+
+		-- Lifetime despawn
+		if (now - gem.SpawnTime) >= GameConfig.XPGems.Lifetime then
+			table.insert(toRemove, i)
+			continue
+		end
+
+		-- Check magnet pull for each player
+		local collected = false
+		for player, stats in _playerStats do
+			if stats.Health <= 0 then
+				continue
+			end
+
+			local char = player.Character
+			if not char then
+				continue
+			end
+			local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if not root then
+				continue
+			end
+
+			local dist = (root.Position - gem.Part.Position).Magnitude
+
+			if dist < 3 then
+				-- Collect
+				self:_collectGem(player, gem)
+				collected = true
+				break
+			elseif dist < stats.MagnetRange then
+				-- Pull toward player
+				local dir = (root.Position - gem.Part.Position).Unit
+				local pullSpeed = GameConfig.XPGems.MagnetSpeed * dt
+				gem.Part.Position += dir * math.min(pullSpeed, dist)
+			end
+		end
+
+		if collected then
+			table.insert(toRemove, i)
+		end
+	end
+
+	for i = #toRemove, 1, -1 do
+		local idx = toRemove[i]
+		local gem = _xpGems[idx]
+		if gem.Part and gem.Part.Parent then
+			gem.Part:Destroy()
+		end
+		table.remove(_xpGems, idx)
+	end
+end
+
+function GameService:_collectGem(player: Player, gem: XPGem)
+	if gem.Part and gem.Part.Parent then
+		gem.Part:Destroy()
+	end
+
+	self:AddXP(player, gem.Value)
+	self.Client.XPGemCollected:Fire(player, gem.Value)
+end
+
+function GameService:_clearAllGems()
+	for _, gem in _xpGems do
+		if gem.Part and gem.Part.Parent then
+			gem.Part:Destroy()
+		end
+	end
+	table.clear(_xpGems)
+end
+
+-------------------------------------------------
+-- XP / LEVELING / UPGRADE CARDS
+-------------------------------------------------
+
 function GameService:AddXP(player: Player, amount: number)
 	local stats = _playerStats[player]
 	if not stats then
@@ -298,12 +412,139 @@ function GameService:AddXP(player: Player, amount: number)
 	while stats.XP >= xpNeeded and stats.Level < cfg.MaxLevel do
 		stats.XP -= math.floor(xpNeeded)
 		stats.Level += 1
-		stats.UpgradePoints += 1
+		stats.PendingLevelUps += 1
 		xpNeeded = cfg.BaseXPToLevel * (cfg.XPScaling ^ (stats.Level - 1))
 	end
 
 	self:_syncStats(player)
+
+	-- Show card selection if there are pending level-ups
+	if stats.PendingLevelUps > 0 then
+		self:_offerUpgradeCards(player)
+	end
 end
+
+function GameService:_offerUpgradeCards(player: Player)
+	local stats = _playerStats[player]
+	if not stats or stats.PendingLevelUps <= 0 then
+		return
+	end
+
+	local cardsCfg = GameConfig.UpgradeCards
+	local available: { any } = {}
+
+	-- Filter eligible upgrades
+	for _, card in cardsCfg.Options do
+		local stacks = stats.Upgrades[card.Id] or 0
+		if stacks >= card.MaxStacks then
+			continue
+		end
+		-- Check weapon requirements
+		if card.RequiresWeapon then
+			local ws = CombatService:GetWeaponState(player)
+			if card.RequiresWeapon == "Projectile" and (not ws or not ws.HasProjectile) then
+				continue
+			end
+		end
+		-- Don't offer NewProjectile if already owned
+		if card.Id == "NewProjectile" then
+			local ws = CombatService:GetWeaponState(player)
+			if ws and ws.HasProjectile then
+				continue
+			end
+		end
+		table.insert(available, card)
+	end
+
+	-- Pick random cards
+	local offered: { { Id: string, Name: string, Description: string } } = {}
+	local count = math.min(cardsCfg.CardsOffered, #available)
+
+	-- Shuffle and take first N
+	local shuffled = table.clone(available)
+	for i = #shuffled, 2, -1 do
+		local j = math.random(1, i)
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	end
+
+	for i = 1, count do
+		local c = shuffled[i]
+		table.insert(offered, { Id = c.Id, Name = c.Name, Description = c.Description })
+	end
+
+	if #offered > 0 then
+		self.Client.ShowUpgradeCards:Fire(player, offered)
+	else
+		-- No upgrades available, just consume the level-up
+		stats.PendingLevelUps -= 1
+		self:_syncStats(player)
+	end
+end
+
+function GameService:_applyUpgrade(player: Player, upgradeId: string): boolean
+	local stats = _playerStats[player]
+	if not stats or stats.PendingLevelUps <= 0 then
+		return false
+	end
+
+	-- Validate the upgrade exists and is eligible
+	local cardDef: any = nil
+	for _, card in GameConfig.UpgradeCards.Options do
+		if card.Id == upgradeId then
+			cardDef = card
+			break
+		end
+	end
+	if not cardDef then
+		return false
+	end
+
+	local stacks = stats.Upgrades[upgradeId] or 0
+	if stacks >= cardDef.MaxStacks then
+		return false
+	end
+
+	stats.Upgrades[upgradeId] = stacks + 1
+	stats.PendingLevelUps -= 1
+
+	-- Apply the effect
+	if upgradeId == "DamageUp" then
+		stats.DamageMultiplier += 0.25
+		CombatService:UpdateDamage(player)
+	elseif upgradeId == "SpeedUp" then
+		stats.WalkSpeed = math.floor(stats.WalkSpeed * 1.2)
+	elseif upgradeId == "RegenUp" then
+		stats.HealthRegen += 2
+	elseif upgradeId == "MagnetUp" then
+		stats.MagnetRange *= 1.5
+	elseif upgradeId == "MaxHealthUp" then
+		stats.MaxHealth += 25
+		stats.Health += 25
+	elseif
+		upgradeId == "NewProjectile"
+		or upgradeId == "OrbiterCount"
+		or upgradeId == "ProjectilePierce"
+		or upgradeId == "ProjectileSpeed"
+	then
+		CombatService:ApplyWeaponUpgrade(player, upgradeId)
+		CombatService:UpdateDamage(player)
+	end
+
+	self:_syncStats(player)
+
+	-- If more level-ups pending, offer next cards
+	if stats.PendingLevelUps > 0 then
+		task.defer(function()
+			self:_offerUpgradeCards(player)
+		end)
+	end
+
+	return true
+end
+
+-------------------------------------------------
+-- REGEN
+-------------------------------------------------
 
 function GameService:_regenLoop()
 	while true do
@@ -321,7 +562,10 @@ function GameService:_regenLoop()
 	end
 end
 
--- Client methods
+-------------------------------------------------
+-- CLIENT API
+-------------------------------------------------
+
 function GameService.Client:GetState(_player: Player): (GameState, number)
 	return _state, _currentWave
 end
@@ -330,63 +574,24 @@ function GameService.Client:GetPlayerStats(player: Player): PlayerStats?
 	return _playerStats[player]
 end
 
-function GameService.Client:RequestUpgrade(player: Player, upgradeId: string): boolean
+function GameService.Client:PickUpgradeCard(player: Player, upgradeId: string): boolean
 	return self.Server:_applyUpgrade(player, upgradeId)
 end
 
-function GameService:_applyUpgrade(player: Player, upgradeId: string): boolean
-	local stats = _playerStats[player]
-	if not stats then
-		return false
-	end
-
-	local upgradeCfg = (GameConfig.Upgrades :: any)[upgradeId]
-	if not upgradeCfg then
-		return false
-	end
-
-	local currentStacks = stats.Upgrades[upgradeId] or 0
-	if currentStacks >= upgradeCfg.MaxStacks then
-		return false
-	end
-
-	local cost = math.floor(upgradeCfg.BaseCost * (upgradeCfg.CostScaling ^ currentStacks))
-	if stats.UpgradePoints < cost then
-		-- Use XP as currency fallback
-		if stats.XP < cost then
-			return false
-		end
-		stats.XP -= cost
-	else
-		stats.UpgradePoints -= 1
-	end
-
-	stats.Upgrades[upgradeId] = currentStacks + 1
-
-	-- Apply effect
-	local effect = upgradeCfg.Effect
-	if effect.Stat == "MaxHealth" then
-		stats.MaxHealth += effect.Value
-		stats.Health += effect.Value -- Also heal by the amount
-	elseif effect.Stat == "DamageMultiplier" then
-		stats.DamageMultiplier += effect.Value
-	elseif effect.Stat == "WalkSpeed" then
-		stats.WalkSpeed += effect.Value
-	elseif effect.Stat == "HealthRegen" then
-		stats.HealthRegen += effect.Value
-	end
-
-	self:_syncStats(player)
-	return true
-end
+-------------------------------------------------
+-- LIFECYCLE
+-------------------------------------------------
 
 function GameService:KnitInit()
+	_gemFolder = Instance.new("Folder")
+	_gemFolder.Name = "XPGems"
+	_gemFolder.Parent = workspace
+
 	Players.PlayerAdded:Connect(function(player: Player)
 		self:_initPlayerStats(player)
 
 		player.CharacterAdded:Connect(function(character)
 			local humanoid = character:WaitForChild("Humanoid") :: Humanoid
-			-- Set max health to large value so Humanoid doesn't die from falls
 			humanoid.MaxHealth = math.huge
 			humanoid.Health = math.huge
 
@@ -402,8 +607,8 @@ function GameService:KnitInit()
 end
 
 function GameService:KnitStart()
-	-- Disable auto respawn
 	Players.CharacterAutoLoads = false
+	CombatService = Knit.GetService("CombatService")
 
 	-- Spawn late joiners
 	Players.PlayerAdded:Connect(function(player: Player)
@@ -419,10 +624,8 @@ function GameService:KnitStart()
 		if #Players:GetPlayers() == 0 then
 			Players.PlayerAdded:Wait()
 		end
-		-- Give the player time to load
 		task.wait(2)
 
-		-- Spawn all current players
 		for _, player in Players:GetPlayers() do
 			self:_respawnPlayer(player)
 		end
@@ -431,9 +634,14 @@ function GameService:KnitStart()
 		self:StartGame()
 	end)
 
-	-- Health regen loop
+	-- Regen loop
 	task.spawn(function()
 		self:_regenLoop()
+	end)
+
+	-- XP gem pickup loop
+	RunService.Heartbeat:Connect(function(dt: number)
+		self:_updateXPGems(dt)
 	end)
 end
 
