@@ -92,7 +92,6 @@ local _megaBossSpawned: boolean = false
 local _lobbyReadyPlayers: { [Player]: boolean } = {}
 local _lobbyTimeout: number = 30
 local _hasMobilePlayer: boolean = false
-local _firstGame: boolean = true
 
 function GameService:GetState(): GameState
 	return _state
@@ -1042,7 +1041,6 @@ function GameService:KnitStart()
 		end
 
 		task.wait(1)
-		_firstGame = true
 		self:_enterLobby()
 
 		-- Send first-run tutorial to new players

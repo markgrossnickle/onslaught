@@ -255,7 +255,7 @@ function StatsService:KnitStart()
 
 	-- Update leaderboard when stats change
 	GameService.GameStateChanged:Connect(function(state: string)
-		if state == "GameOver" then
+		if state == "GameOver" or state == "Victory" then
 			for _, player in Players:GetPlayers() do
 				task.spawn(function()
 					self:SaveEndOfGame(player)

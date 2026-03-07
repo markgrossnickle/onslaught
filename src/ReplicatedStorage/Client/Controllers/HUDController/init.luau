@@ -1811,12 +1811,12 @@ function HUDController:_setupGamepadInput()
 			elseif input.KeyCode == Enum.KeyCode.ButtonA then
 				local selected = _gamepadCards[_gamepadSelectedIndex]
 				if selected then
-					-- Simulate click
-					local clickSignal = selected.MouseButton1Click
-					if clickSignal then
-						-- Fire through Activated which is the gamepad-compatible event
-						selected.Activated:Fire()
-					end
+					-- Pick the upgrade directly (Activated:Fire() is not callable on RBXScriptSignal)
+					_cardFrame.Visible = false
+					local GameService = Knit.GetService("GameService")
+					GameService:PickUpgradeCard(selected.Name):catch(function(err)
+						warn("Gamepad card pick failed:", err)
+					end)
 				end
 			end
 		end

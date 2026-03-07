@@ -591,6 +591,13 @@ function PowerUpService:KnitStart()
 		_shieldPlayers[player] = nil
 		_doubleXPPlayers[player] = nil
 		_speedBoostPlayers[player] = nil
+
+		-- Remove any active buffs for this player
+		for i = #_activeBuffs, 1, -1 do
+			if _activeBuffs[i].Player == player then
+				table.remove(_activeBuffs, i)
+			end
+		end
 	end)
 
 	-- Update loop
