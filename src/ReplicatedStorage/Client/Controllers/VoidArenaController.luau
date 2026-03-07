@@ -218,10 +218,70 @@ function VoidArenaController:_pushPlayerInBounds()
 	end
 end
 
+function VoidArenaController:_spawnHazardVFX(hazardType: string, position: Vector3, radius: number, duration: number)
+	local arenaFolder = workspace:FindFirstChild("Arena")
+	if not arenaFolder then
+		return
+	end
+
+	local color = Color3.fromRGB(255, 100, 30) -- lava default
+	if hazardType == "IcePatches" then
+		color = Color3.fromRGB(100, 180, 255)
+	elseif hazardType == "VoidRifts" then
+		color = Color3.fromRGB(80, 255, 120)
+	end
+
+	local indicator = Instance.new("Part")
+	indicator.Name = "HazardZone"
+	indicator.Shape = Enum.PartType.Cylinder
+	indicator.Size = Vector3.new(0.2, radius * 2, radius * 2)
+	indicator.Color = color
+	indicator.Material = Enum.Material.Neon
+	indicator.Transparency = 0.6
+	indicator.Anchored = true
+	indicator.CanCollide = false
+	indicator.CastShadow = false
+	indicator.CFrame = CFrame.new(position.X, 0.15, position.Z) * CFrame.Angles(0, 0, math.rad(90))
+	indicator.Parent = arenaFolder
+
+	-- Pulse effect
+	task.spawn(function()
+		local elapsed = 0
+		while elapsed < duration and indicator.Parent do
+			elapsed += task.wait(0.1)
+			indicator.Transparency = 0.5 + math.sin(elapsed * 4) * 0.15
+		end
+		if indicator.Parent then
+			indicator:Destroy()
+		end
+	end)
+end
+
+function VoidArenaController:_onStageChanged(stageName: string, _stageIndex: number)
+	-- Update lighting based on stage config
+	local stages = GameConfig.Stages.List
+	for _, stage in stages do
+		if stage.Name == stageName then
+			TweenService:Create(Lighting, TweenInfo.new(3), {
+				FogColor = stage.FogColor,
+				Ambient = stage.Ambient,
+				OutdoorAmbient = stage.Ambient,
+			}):Play()
+
+			local cc = Lighting:FindFirstChild("VoidColorCorrection") :: ColorCorrectionEffect?
+			if cc then
+				TweenService:Create(cc, TweenInfo.new(3), { TintColor = stage.TintColor }):Play()
+			end
+			break
+		end
+	end
+end
+
 function VoidArenaController:KnitInit() end
 
 function VoidArenaController:KnitStart()
 	local GameService = Knit.GetService("GameService")
+	local ArenaService = Knit.GetService("ArenaService")
 
 	GameService.GameTimerTick:Connect(function(elapsed: number)
 		_gameElapsed = elapsed
@@ -260,6 +320,15 @@ function VoidArenaController:KnitStart()
 				end
 			end
 		end
+	end)
+
+	-- Stage change and hazard signals
+	ArenaService.StageChanged:Connect(function(stageName: string, stageIndex: number)
+		self:_onStageChanged(stageName, stageIndex)
+	end)
+
+	ArenaService.HazardSpawned:Connect(function(hazardType: string, position: Vector3, radius: number, duration: number)
+		self:_spawnHazardVFX(hazardType, position, radius, duration)
 	end)
 
 	local isMobile = PlatformUtil.IsMobile()

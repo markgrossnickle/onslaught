@@ -45,6 +45,87 @@ GameConfig.Arena = {
 	FogEndPhase4 = 80,
 }
 
+-- Stages: different arena themes that rotate as the run progresses
+GameConfig.Stages = {
+	TransitionTime = 300, -- switch stages every 5 minutes
+	List = {
+		{
+			Name = "VoidWasteland",
+			FloorColor = Color3.fromRGB(25, 15, 35),
+			FloorMaterial = Enum.Material.Slate,
+			VeinColor = Color3.fromRGB(180, 60, 220),
+			CrystalColor = Color3.fromRGB(20, 10, 35),
+			CrystalCoreColor = Color3.fromRGB(140, 40, 180),
+			BoundaryColor = Color3.fromRGB(15, 8, 25),
+			BoundarySmokeColor = Color3.fromRGB(40, 15, 60),
+			FogColor = Color3.fromRGB(10, 5, 15),
+			TintColor = Color3.fromRGB(220, 190, 255),
+			Ambient = Color3.fromRGB(20, 10, 30),
+			-- Hazard: none (default stage)
+			Hazard = "None",
+		},
+		{
+			Name = "CrimsonHollow",
+			FloorColor = Color3.fromRGB(35, 12, 15),
+			FloorMaterial = Enum.Material.Slate,
+			VeinColor = Color3.fromRGB(220, 50, 40),
+			CrystalColor = Color3.fromRGB(40, 10, 10),
+			CrystalCoreColor = Color3.fromRGB(220, 40, 30),
+			BoundaryColor = Color3.fromRGB(25, 5, 5),
+			BoundarySmokeColor = Color3.fromRGB(80, 20, 10),
+			FogColor = Color3.fromRGB(15, 5, 5),
+			TintColor = Color3.fromRGB(255, 190, 190),
+			Ambient = Color3.fromRGB(25, 8, 8),
+			-- Hazard: lava pools that deal damage
+			Hazard = "LavaPools",
+			HazardDamage = 8,
+			HazardInterval = 15.0,
+			HazardRadius = 6,
+			HazardDuration = 8.0,
+			HazardCount = 3,
+		},
+		{
+			Name = "FrozenAbyss",
+			FloorColor = Color3.fromRGB(15, 20, 35),
+			FloorMaterial = Enum.Material.Glacier,
+			VeinColor = Color3.fromRGB(60, 160, 255),
+			CrystalColor = Color3.fromRGB(20, 30, 50),
+			CrystalCoreColor = Color3.fromRGB(60, 140, 220),
+			BoundaryColor = Color3.fromRGB(8, 12, 25),
+			BoundarySmokeColor = Color3.fromRGB(20, 40, 80),
+			FogColor = Color3.fromRGB(5, 8, 18),
+			TintColor = Color3.fromRGB(190, 210, 255),
+			Ambient = Color3.fromRGB(10, 15, 28),
+			-- Hazard: ice patches that slow players
+			Hazard = "IcePatches",
+			HazardInterval = 12.0,
+			HazardRadius = 8,
+			HazardDuration = 10.0,
+			HazardCount = 4,
+			HazardSlowFactor = 0.5, -- 50% speed reduction
+		},
+		{
+			Name = "EldritchNexus",
+			FloorColor = Color3.fromRGB(10, 15, 10),
+			FloorMaterial = Enum.Material.Slate,
+			VeinColor = Color3.fromRGB(40, 220, 80),
+			CrystalColor = Color3.fromRGB(10, 25, 10),
+			CrystalCoreColor = Color3.fromRGB(40, 200, 60),
+			BoundaryColor = Color3.fromRGB(5, 15, 5),
+			BoundarySmokeColor = Color3.fromRGB(15, 50, 20),
+			FogColor = Color3.fromRGB(5, 12, 5),
+			TintColor = Color3.fromRGB(190, 255, 200),
+			Ambient = Color3.fromRGB(8, 20, 10),
+			-- Hazard: void rifts that teleport players randomly
+			Hazard = "VoidRifts",
+			HazardInterval = 20.0,
+			HazardRadius = 5,
+			HazardDuration = 6.0,
+			HazardCount = 2,
+		},
+	},
+}
+
 -- Player
 GameConfig.Player = {
 	MaxHealth = 100,
