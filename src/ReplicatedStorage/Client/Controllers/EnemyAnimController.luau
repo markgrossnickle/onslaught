@@ -199,6 +199,176 @@ local function animateWorm(model: Model, now: number)
 	end
 end
 
+local function animateLurker(model: Model, now: number)
+	local body = model.PrimaryPart
+	if not body then
+		return
+	end
+
+	-- Ghostly pulse: body transparency oscillates
+	body.Transparency = 0.4 + math.sin(now * 3) * 0.2
+
+	-- Core pulse
+	local core = model:FindFirstChild("Core") :: BasePart?
+	if core then
+		local pulse = 0.85 + math.sin(now * 5) * 0.15
+		core.Size = body.Size * 0.4 * pulse
+	end
+end
+
+local function animateCrystalback(model: Model, now: number)
+	local body = model.PrimaryPart
+	if not body then
+		return
+	end
+
+	local velocity = body.AssemblyLinearVelocity
+	local speed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+
+	-- Shell shimmer
+	for _, child in model:GetChildren() do
+		if child:IsA("BasePart") and child.Name:sub(1, 5) == "Shell" then
+			local idx = child:GetAttribute("AppendageIndex") or 1
+			child.Transparency = 0.2 + math.sin(now * 2 + idx) * 0.1
+		end
+
+		-- Leg walk cycle
+		if child:IsA("BasePart") and child.Name:sub(1, 3) == "Leg" and speed > 0.5 then
+			local idx = child:GetAttribute("AppendageIndex") or 1
+			local phase = ((idx - 1) % 2 == 0) and 0 or math.pi
+			local cycle = math.sin(now * 5 + phase) * 10
+
+			local side = (idx <= 2) and -1 or 1
+			local zOff = ((idx - 1) % 2 == 0) and body.Size.Z * 0.25 or -body.Size.Z * 0.25
+
+			child.CFrame = body.CFrame
+				* CFrame.new(side * body.Size.X / 2, -body.Size.Y / 2 - 0.5, zOff)
+				* CFrame.Angles(math.rad(cycle), 0, 0)
+		end
+	end
+end
+
+local function animateBroodmother(model: Model, now: number)
+	local body = model.PrimaryPart
+	if not body then
+		return
+	end
+
+	-- Egg sac pulsing
+	for _, child in model:GetChildren() do
+		if child:IsA("BasePart") and child.Name:sub(1, 6) == "EggSac" then
+			local idx = child:GetAttribute("AppendageIndex") or 1
+			local pulse = 0.9 + math.sin(now * 2 + idx * 1.5) * 0.15
+			child.Size = Vector3.one * 1.2 * pulse
+			child.Transparency = 0.2 + math.sin(now * 3 + idx) * 0.1
+		end
+	end
+end
+
+local function animateLeech(model: Model, now: number)
+	local body = model.PrimaryPart
+	if not body then
+		return
+	end
+
+	-- Tail wiggle
+	for _, child in model:GetChildren() do
+		if child:IsA("BasePart") and child.Name:sub(1, 4) == "Tail" then
+			local idx = child:GetAttribute("AppendageIndex") or 1
+			local wiggle = math.sin(now * 6 + idx * 2) * 15
+
+			child.CFrame = body.CFrame
+				* CFrame.new(0, 0, body.Size.Z / 2 + idx * body.Size.Z * 0.25)
+				* CFrame.Angles(0, math.rad(wiggle * idx), 0)
+		end
+	end
+end
+
+local function animateHivemind(model: Model, now: number)
+	local body = model.PrimaryPart
+	if not body then
+		return
+	end
+
+	-- Core pulse
+	local core = model:FindFirstChild("Core") :: BasePart?
+	if core then
+		local pulse = 0.85 + math.sin(now * 3) * 0.15
+		core.Size = body.Size * 0.4 * pulse
+		local t = (math.sin(now * 2) + 1) / 2
+		core.Color = Color3.fromRGB(255, math.floor(200 + t * 55), math.floor(60 + t * 40))
+	end
+
+	-- Rune orbiting
+	for _, child in model:GetChildren() do
+		if child:IsA("BasePart") and child.Name:sub(1, 4) == "Rune" then
+			local idx = child:GetAttribute("AppendageIndex") or 1
+			local angle = now * 1.5 + (idx / 4) * math.pi * 2
+			local r = body.Size.X * 0.6
+			local yBob = math.sin(now * 3 + idx) * 0.5
+			child.CFrame = body.CFrame * CFrame.new(math.cos(angle) * r, yBob, math.sin(angle) * r)
+		end
+	end
+end
+
+local function animateBurrower(model: Model, now: number)
+	local body = model.PrimaryPart
+	if not body then
+		return
+	end
+
+	-- Ridge glow pulse
+	for _, child in model:GetChildren() do
+		if child:IsA("BasePart") and child.Name:sub(1, 5) == "Ridge" then
+			local idx = child:GetAttribute("AppendageIndex") or 1
+			child.Transparency = 0.3 + math.sin(now * 4 + idx) * 0.2
+		end
+	end
+
+	-- Drill rotation (spin the drill nose)
+	local drill = model:FindFirstChild("Drill") :: BasePart?
+	if drill then
+		local speed = Vector3.new(body.AssemblyLinearVelocity.X, 0, body.AssemblyLinearVelocity.Z).Magnitude
+		if speed > 1 then
+			drill.CFrame = body.CFrame
+				* CFrame.new(0, 0, -body.Size.Z / 2 - body.Size.X * 0.2)
+				* CFrame.Angles(0, 0, now * 10)
+		end
+	end
+end
+
+local function animateVoidWraith(model: Model, now: number)
+	local body = model.PrimaryPart
+	if not body then
+		return
+	end
+
+	-- Body flicker (transparency pulses)
+	body.Transparency = 0.2 + math.sin(now * 4) * 0.15
+
+	-- Core pulse
+	local core = model:FindFirstChild("Core") :: BasePart?
+	if core then
+		local pulse = 0.85 + math.sin(now * 5) * 0.15
+		core.Size = body.Size * 0.3 * pulse
+	end
+
+	-- Tendril sway
+	for _, child in model:GetChildren() do
+		if child:IsA("BasePart") and child.Name:sub(1, 7) == "Tendril" then
+			local idx = child:GetAttribute("AppendageIndex") or 1
+			local swayAngle = math.sin(now * 2 + idx * 0.8) * 20
+			local angle = (idx / 3) * math.pi * 2
+			local r = body.Size.X * 0.25
+			local len = child.Size.Y
+
+			child.CFrame = body.CFrame
+				* CFrame.new(math.cos(angle) * r, -body.Size.Y / 2 - len / 2, math.sin(angle) * r)
+				* CFrame.Angles(math.rad(swayAngle), 0, math.rad(swayAngle * 0.5))
+		end
+	end
+end
+
 -------------------------------------------------
 -- MAIN LOOP
 -------------------------------------------------
@@ -247,7 +417,13 @@ function EnemyAnimController:KnitStart()
 
 			local enemyType = typeVal.Value
 
-			if enemyType == "Drone" or enemyType == "Brute" or enemyType == "Dasher" then
+			if
+				enemyType == "Drone"
+				or enemyType == "Brute"
+				or enemyType == "Dasher"
+				or enemyType == "Swarmling"
+				or enemyType == "Spitter"
+			then
 				animateDrone(child, now)
 			elseif enemyType == "Skitter" then
 				animateSkitter(child, now)
@@ -261,6 +437,20 @@ function EnemyAnimController:KnitStart()
 				animateBoss(child, now, true)
 			elseif enemyType == "Worm" then
 				animateWorm(child, now)
+			elseif enemyType == "Lurker" then
+				animateLurker(child, now)
+			elseif enemyType == "Crystalback" then
+				animateCrystalback(child, now)
+			elseif enemyType == "Broodmother" then
+				animateBroodmother(child, now)
+			elseif enemyType == "Leech" then
+				animateLeech(child, now)
+			elseif enemyType == "Hivemind" then
+				animateHivemind(child, now)
+			elseif enemyType == "Burrower" then
+				animateBurrower(child, now)
+			elseif enemyType == "VoidWraith" then
+				animateVoidWraith(child, now)
 			end
 		end
 	end)

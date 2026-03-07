@@ -36,6 +36,23 @@ export type EnemyData = {
 	WormId: number?, -- shared across all segments of same worm
 	IsWormHead: boolean?,
 	SegmentIndex: number?,
+	-- Spitter-specific
+	LastSpitTime: number?,
+	-- Lurker-specific
+	LastTeleportTime: number?,
+	TeleportPhase: string?, -- "VISIBLE" | "TELEGRAPH" | "TELEPORTING"
+	TeleportPhaseUntil: number?,
+	-- Broodmother-specific
+	LastSpawnTime: number?,
+	-- Leech-specific
+	AttachedTo: Player?,
+	-- Burrower-specific
+	BurrowState: string?, -- "BURROWED" | "SURFACED"
+	BurrowStateUntil: number?,
+	-- VoidWraith-specific
+	PhaseState: string?, -- "SOLID" | "PHASED"
+	PhaseStateUntil: number?,
+	-- Hivemind-specific (no extra fields needed, buff applied in AI)
 }
 
 export type WormData = {
@@ -776,6 +793,573 @@ local function buildWormSegmentModel(cfg: any, position: Vector3, segIndex: numb
 end
 
 -------------------------------------------------
+-- NEW ENEMY MODEL BUILDERS
+-------------------------------------------------
+
+local function buildSwarmlingModel(cfg: any, position: Vector3, model: Model): BasePart
+	-- Tiny neon orb
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Shape = Enum.PartType.Ball
+	body.Size = cfg.Size
+	body.Color = cfg.CoreColor
+	body.Material = Enum.Material.Neon
+	body.Position = position
+	body.Anchored = false
+	body.CanCollide = true
+	body.Parent = model
+
+	addVoidSmoke(body, cfg.CoreColor, 3)
+
+	return body
+end
+
+local function buildSpitterModel(cfg: any, position: Vector3, model: Model): BasePart
+	-- Bulbous body with spit nozzle
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Size = cfg.Size
+	body.Color = cfg.BodyColor
+	body.Material = cfg.Material
+	body.Position = position
+	body.Anchored = false
+	body.CanCollide = true
+	body.Parent = model
+
+	-- Bloated belly
+	local belly = Instance.new("Part")
+	belly.Name = "Belly"
+	belly.Shape = Enum.PartType.Ball
+	belly.Size = Vector3.new(cfg.Size.X * 0.8, cfg.Size.Y * 0.7, cfg.Size.Z * 0.8)
+	belly.Color = cfg.CoreColor
+	belly.Material = Enum.Material.Neon
+	belly.Transparency = 0.3
+	belly.Anchored = false
+	belly.CanCollide = false
+	belly.CastShadow = false
+	belly.Parent = model
+	belly.CFrame = body.CFrame * CFrame.new(0, -0.3, 0)
+
+	local bellyWeld = Instance.new("WeldConstraint")
+	bellyWeld.Part0 = body
+	bellyWeld.Part1 = belly
+	bellyWeld.Parent = belly
+
+	-- Spit nozzle
+	local nozzle = Instance.new("Part")
+	nozzle.Name = "Nozzle"
+	nozzle.Size = Vector3.new(0.6, 0.6, 1.5)
+	nozzle.Color = cfg.CoreColor
+	nozzle.Material = Enum.Material.Neon
+	nozzle.Anchored = false
+	nozzle.CanCollide = false
+	nozzle.CastShadow = false
+	nozzle.Parent = model
+	nozzle.CFrame = body.CFrame * CFrame.new(0, 0.3, -cfg.Size.Z / 2 - 0.6)
+
+	local nozzleWeld = Instance.new("WeldConstraint")
+	nozzleWeld.Part0 = body
+	nozzleWeld.Part1 = nozzle
+	nozzleWeld.Parent = nozzle
+
+	-- Eyes
+	for i = 1, 2 do
+		local eye = Instance.new("Part")
+		eye.Name = "Eye" .. i
+		eye.Shape = Enum.PartType.Ball
+		eye.Size = Vector3.one * 0.5
+		eye.Color = cfg.EyeColor
+		eye.Material = Enum.Material.Neon
+		eye.Anchored = false
+		eye.CanCollide = false
+		eye.CastShadow = false
+		eye.Parent = model
+		local xOff = (i == 1) and -0.8 or 0.8
+		eye.CFrame = body.CFrame * CFrame.new(xOff, 0.5, -cfg.Size.Z / 2 - 0.2)
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = body
+		weld.Part1 = eye
+		weld.Parent = eye
+	end
+
+	addVoidSmoke(body, cfg.CoreColor, 4)
+
+	return body
+end
+
+local function buildLurkerModel(cfg: any, position: Vector3, model: Model): BasePart
+	-- Ghostly translucent body
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Shape = Enum.PartType.Ball
+	body.Size = cfg.Size
+	body.Color = cfg.BodyColor
+	body.Material = cfg.Material
+	body.Transparency = 0.5
+	body.Position = position
+	body.Anchored = false
+	body.CanCollide = true
+	body.Parent = model
+
+	-- Inner core
+	local core = Instance.new("Part")
+	core.Name = "Core"
+	core.Shape = Enum.PartType.Ball
+	core.Size = cfg.Size * 0.4
+	core.Color = cfg.CoreColor
+	core.Material = Enum.Material.Neon
+	core.Anchored = false
+	core.CanCollide = false
+	core.CastShadow = false
+	core.Parent = model
+	core.CFrame = body.CFrame
+
+	local coreWeld = Instance.new("WeldConstraint")
+	coreWeld.Part0 = body
+	coreWeld.Part1 = core
+	coreWeld.Parent = core
+
+	-- Eyes
+	for i = 1, 2 do
+		local eye = Instance.new("Part")
+		eye.Name = "Eye" .. i
+		eye.Shape = Enum.PartType.Ball
+		eye.Size = Vector3.one * 0.4
+		eye.Color = cfg.EyeColor
+		eye.Material = Enum.Material.Neon
+		eye.Anchored = false
+		eye.CanCollide = false
+		eye.CastShadow = false
+		eye.Parent = model
+		local xOff = (i == 1) and -0.6 or 0.6
+		eye.CFrame = body.CFrame * CFrame.new(xOff, 0.3, -cfg.Size.Z / 2 - 0.1)
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = body
+		weld.Part1 = eye
+		weld.Parent = eye
+	end
+
+	addVoidSmoke(body, cfg.CoreColor, 8)
+
+	return body
+end
+
+local function buildCrystalbackModel(cfg: any, position: Vector3, model: Model): BasePart
+	-- Heavy armored body
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Size = cfg.Size
+	body.Color = cfg.BodyColor
+	body.Material = cfg.Material
+	body.Position = position
+	body.Anchored = false
+	body.CanCollide = true
+	body.Parent = model
+
+	-- Crystal shell plates on front
+	for i = 1, 3 do
+		local plate = Instance.new("Part")
+		plate.Name = "Shell" .. i
+		plate.Size = Vector3.new(cfg.Size.X * 0.35, cfg.Size.Y * 0.6, 0.4)
+		plate.Color = cfg.ShellColor
+		plate.Material = Enum.Material.Glass
+		plate.Transparency = 0.3
+		plate.Anchored = false
+		plate.CanCollide = false
+		plate.CastShadow = false
+		plate.Parent = model
+
+		local xOff = (i - 2) * (cfg.Size.X * 0.3)
+		plate.CFrame = body.CFrame * CFrame.new(xOff, cfg.Size.Y * 0.1, -cfg.Size.Z / 2 - 0.15)
+		tagAppendage(plate, "Shell", i)
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = body
+		weld.Part1 = plate
+		weld.Parent = plate
+	end
+
+	-- 4 stubby legs
+	for i = 1, 4 do
+		local leg = Instance.new("Part")
+		leg.Name = "Leg" .. i
+		leg.Size = Vector3.new(0.8, 2, 0.8)
+		leg.Color = cfg.BodyColor
+		leg.Material = cfg.Material
+		leg.Anchored = false
+		leg.CanCollide = false
+		leg.CastShadow = false
+		leg.Parent = model
+
+		local side = (i <= 2) and -1 or 1
+		local zOff = ((i - 1) % 2 == 0) and cfg.Size.Z * 0.25 or -cfg.Size.Z * 0.25
+		leg.CFrame = body.CFrame * CFrame.new(side * cfg.Size.X / 2, -cfg.Size.Y / 2 - 0.5, zOff)
+		tagAppendage(leg, "Leg", i)
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = body
+		weld.Part1 = leg
+		weld.Parent = leg
+	end
+
+	-- Eyes
+	for i = 1, 2 do
+		local eye = Instance.new("Part")
+		eye.Name = "Eye" .. i
+		eye.Shape = Enum.PartType.Ball
+		eye.Size = Vector3.one * 0.6
+		eye.Color = cfg.EyeColor
+		eye.Material = Enum.Material.Neon
+		eye.Anchored = false
+		eye.CanCollide = false
+		eye.CastShadow = false
+		eye.Parent = model
+		local xOff = (i == 1) and -1.0 or 1.0
+		eye.CFrame = body.CFrame * CFrame.new(xOff, cfg.Size.Y * 0.2, -cfg.Size.Z / 2 - 0.2)
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = body
+		weld.Part1 = eye
+		weld.Parent = eye
+	end
+
+	return body
+end
+
+local function buildBroodmotherModel(cfg: any, position: Vector3, model: Model): BasePart
+	-- Large bloated body
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Shape = Enum.PartType.Ball
+	body.Size = cfg.Size
+	body.Color = cfg.BodyColor
+	body.Material = cfg.Material
+	body.Position = position
+	body.Anchored = false
+	body.CanCollide = true
+	body.Parent = model
+
+	-- Egg sacs (pulsing neon blobs)
+	for i = 1, 4 do
+		local sac = Instance.new("Part")
+		sac.Name = "EggSac" .. i
+		sac.Shape = Enum.PartType.Ball
+		sac.Size = Vector3.one * 1.2
+		sac.Color = cfg.CoreColor
+		sac.Material = Enum.Material.Neon
+		sac.Transparency = 0.3
+		sac.Anchored = false
+		sac.CanCollide = false
+		sac.CastShadow = false
+		sac.Parent = model
+
+		local angle = (i / 4) * math.pi * 2
+		local r = cfg.Size.X * 0.35
+		sac.CFrame = body.CFrame * CFrame.new(math.cos(angle) * r, -cfg.Size.Y * 0.2, math.sin(angle) * r)
+		tagAppendage(sac, "EggSac", i)
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = body
+		weld.Part1 = sac
+		weld.Parent = sac
+	end
+
+	-- Eyes (4 red eyes)
+	for i = 1, 4 do
+		local eye = Instance.new("Part")
+		eye.Name = "Eye" .. i
+		eye.Shape = Enum.PartType.Ball
+		eye.Size = Vector3.one * 0.4
+		eye.Color = cfg.EyeColor
+		eye.Material = Enum.Material.Neon
+		eye.Anchored = false
+		eye.CanCollide = false
+		eye.CastShadow = false
+		eye.Parent = model
+		local xOff = ((i - 1) % 2 == 0) and -0.6 or 0.6
+		local yOff = (i <= 2) and 0.5 or 0.1
+		eye.CFrame = body.CFrame * CFrame.new(xOff, yOff, -cfg.Size.Z / 2 - 0.2)
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = body
+		weld.Part1 = eye
+		weld.Parent = eye
+	end
+
+	addVoidSmoke(body, cfg.CoreColor, 5)
+
+	return body
+end
+
+local function buildLeechModel(cfg: any, position: Vector3, model: Model): BasePart
+	-- Flat slug-like body
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Size = cfg.Size
+	body.Color = cfg.BodyColor
+	body.Material = cfg.Material
+	body.Position = position
+	body.Anchored = false
+	body.CanCollide = true
+	body.Parent = model
+
+	-- Red mouth/sucker at front
+	local mouth = Instance.new("Part")
+	mouth.Name = "Mouth"
+	mouth.Shape = Enum.PartType.Cylinder
+	mouth.Size = Vector3.new(0.3, cfg.Size.X * 0.6, cfg.Size.X * 0.6)
+	mouth.Color = cfg.CoreColor
+	mouth.Material = Enum.Material.Neon
+	mouth.Anchored = false
+	mouth.CanCollide = false
+	mouth.CastShadow = false
+	mouth.Parent = model
+	mouth.CFrame = body.CFrame * CFrame.new(0, 0, -cfg.Size.Z / 2 - 0.1) * CFrame.Angles(0, 0, math.rad(90))
+
+	local mouthWeld = Instance.new("WeldConstraint")
+	mouthWeld.Part0 = body
+	mouthWeld.Part1 = mouth
+	mouthWeld.Parent = mouth
+
+	-- Tail segments
+	for i = 1, 2 do
+		local seg = Instance.new("Part")
+		seg.Name = "Tail" .. i
+		seg.Size = Vector3.new(cfg.Size.X * (1 - i * 0.2), cfg.Size.Y, cfg.Size.Z * 0.3)
+		seg.Color = cfg.BodyColor
+		seg.Material = cfg.Material
+		seg.Anchored = false
+		seg.CanCollide = false
+		seg.CastShadow = false
+		seg.Parent = model
+		seg.CFrame = body.CFrame * CFrame.new(0, 0, cfg.Size.Z / 2 + i * cfg.Size.Z * 0.25)
+		tagAppendage(seg, "Tail", i)
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = body
+		weld.Part1 = seg
+		weld.Parent = seg
+	end
+
+	return body
+end
+
+local function buildHivemindModel(cfg: any, position: Vector3, model: Model): BasePart
+	-- Pulsing glass orb with gold core
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Shape = Enum.PartType.Ball
+	body.Size = cfg.Size
+	body.Color = cfg.BodyColor
+	body.Material = cfg.Material
+	body.Transparency = 0.4
+	body.Position = position
+	body.Anchored = false
+	body.CanCollide = true
+	body.Parent = model
+
+	-- Golden core
+	local core = Instance.new("Part")
+	core.Name = "Core"
+	core.Shape = Enum.PartType.Ball
+	core.Size = cfg.Size * 0.4
+	core.Color = cfg.CoreColor
+	core.Material = Enum.Material.Neon
+	core.Anchored = false
+	core.CanCollide = false
+	core.CastShadow = false
+	core.Parent = model
+	core.CFrame = body.CFrame
+
+	local coreWeld = Instance.new("WeldConstraint")
+	coreWeld.Part0 = body
+	coreWeld.Part1 = core
+	coreWeld.Parent = core
+
+	-- Orbiting runes (small neon cubes)
+	for i = 1, 4 do
+		local rune = Instance.new("Part")
+		rune.Name = "Rune" .. i
+		rune.Size = Vector3.one * 0.5
+		rune.Color = cfg.CoreColor
+		rune.Material = Enum.Material.Neon
+		rune.Anchored = false
+		rune.CanCollide = false
+		rune.CastShadow = false
+		rune.Parent = model
+
+		local angle = (i / 4) * math.pi * 2
+		local r = cfg.Size.X * 0.6
+		rune.CFrame = body.CFrame * CFrame.new(math.cos(angle) * r, 0, math.sin(angle) * r)
+		tagAppendage(rune, "Rune", i)
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = body
+		weld.Part1 = rune
+		weld.Parent = rune
+	end
+
+	addVoidSmoke(body, cfg.CoreColor, 6)
+
+	return body
+end
+
+local function buildBurrowerModel(cfg: any, position: Vector3, model: Model): BasePart
+	-- Elongated body
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Size = cfg.Size
+	body.Color = cfg.BodyColor
+	body.Material = cfg.Material
+	body.Position = position
+	body.Anchored = false
+	body.CanCollide = true
+	body.Parent = model
+
+	-- Drill nose
+	local drill = Instance.new("Part")
+	drill.Name = "Drill"
+	drill.Shape = Enum.PartType.Ball
+	drill.Size = Vector3.new(cfg.Size.X * 0.6, cfg.Size.Y * 0.6, cfg.Size.X * 0.6)
+	drill.Color = cfg.CoreColor
+	drill.Material = Enum.Material.Neon
+	drill.Anchored = false
+	drill.CanCollide = false
+	drill.CastShadow = false
+	drill.Parent = model
+	drill.CFrame = body.CFrame * CFrame.new(0, 0, -cfg.Size.Z / 2 - cfg.Size.X * 0.2)
+
+	local drillWeld = Instance.new("WeldConstraint")
+	drillWeld.Part0 = body
+	drillWeld.Part1 = drill
+	drillWeld.Parent = drill
+
+	-- Ridged segments on body
+	for i = 1, 3 do
+		local ridge = Instance.new("Part")
+		ridge.Name = "Ridge" .. i
+		ridge.Size = Vector3.new(cfg.Size.X * 1.1, cfg.Size.Y * 0.3, 0.3)
+		ridge.Color = cfg.CoreColor
+		ridge.Material = Enum.Material.Neon
+		ridge.Transparency = 0.4
+		ridge.Anchored = false
+		ridge.CanCollide = false
+		ridge.CastShadow = false
+		ridge.Parent = model
+
+		local zOff = (i - 2) * (cfg.Size.Z * 0.3)
+		ridge.CFrame = body.CFrame * CFrame.new(0, cfg.Size.Y * 0.3, zOff)
+		tagAppendage(ridge, "Ridge", i)
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = body
+		weld.Part1 = ridge
+		weld.Parent = ridge
+	end
+
+	-- Eyes
+	for i = 1, 2 do
+		local eye = Instance.new("Part")
+		eye.Name = "Eye" .. i
+		eye.Shape = Enum.PartType.Ball
+		eye.Size = Vector3.one * 0.4
+		eye.Color = cfg.EyeColor
+		eye.Material = Enum.Material.Neon
+		eye.Anchored = false
+		eye.CanCollide = false
+		eye.CastShadow = false
+		eye.Parent = model
+		local xOff = (i == 1) and -0.5 or 0.5
+		eye.CFrame = body.CFrame * CFrame.new(xOff, 0.3, -cfg.Size.Z / 2 - 0.1)
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = body
+		weld.Part1 = eye
+		weld.Parent = eye
+	end
+
+	return body
+end
+
+local function buildVoidWraithModel(cfg: any, position: Vector3, model: Model): BasePart
+	-- Tall ghostly figure
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Size = cfg.Size
+	body.Color = cfg.BodyColor
+	body.Material = cfg.Material
+	body.Transparency = 0.3
+	body.Position = position
+	body.Anchored = false
+	body.CanCollide = true
+	body.Parent = model
+
+	-- Core
+	local core = Instance.new("Part")
+	core.Name = "Core"
+	core.Shape = Enum.PartType.Ball
+	core.Size = cfg.Size * 0.3
+	core.Color = cfg.CoreColor
+	core.Material = Enum.Material.Neon
+	core.Anchored = false
+	core.CanCollide = false
+	core.CastShadow = false
+	core.Parent = model
+	core.CFrame = body.CFrame
+
+	local coreWeld = Instance.new("WeldConstraint")
+	coreWeld.Part0 = body
+	coreWeld.Part1 = core
+	coreWeld.Parent = core
+
+	-- Wispy tendrils (3 hanging from bottom)
+	for i = 1, 3 do
+		local tendril = Instance.new("Part")
+		tendril.Name = "Tendril" .. i
+		tendril.Size = Vector3.new(0.3, 3, 0.3)
+		tendril.Color = cfg.CoreColor
+		tendril.Material = Enum.Material.Neon
+		tendril.Transparency = 0.5
+		tendril.Anchored = false
+		tendril.CanCollide = false
+		tendril.CastShadow = false
+		tendril.Parent = model
+
+		local angle = (i / 3) * math.pi * 2
+		local r = cfg.Size.X * 0.25
+		tendril.CFrame = body.CFrame
+			* CFrame.new(math.cos(angle) * r, -cfg.Size.Y / 2 - tendril.Size.Y / 2, math.sin(angle) * r)
+		tagAppendage(tendril, "Tendril", i)
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = body
+		weld.Part1 = tendril
+		weld.Parent = tendril
+	end
+
+	-- Eyes (ghostly)
+	for i = 1, 2 do
+		local eye = Instance.new("Part")
+		eye.Name = "Eye" .. i
+		eye.Shape = Enum.PartType.Ball
+		eye.Size = Vector3.one * 0.5
+		eye.Color = cfg.EyeColor
+		eye.Material = Enum.Material.Neon
+		eye.Anchored = false
+		eye.CanCollide = false
+		eye.CastShadow = false
+		eye.Parent = model
+		local xOff = (i == 1) and -0.5 or 0.5
+		eye.CFrame = body.CFrame * CFrame.new(xOff, cfg.Size.Y * 0.2, -cfg.Size.Z / 2 - 0.1)
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = body
+		weld.Part1 = eye
+		weld.Parent = eye
+	end
+
+	addVoidSmoke(body, cfg.CoreColor, 10)
+
+	return body
+end
+
+-------------------------------------------------
 -- CREATE ENEMY MODEL (dispatches to type-specific builder)
 -------------------------------------------------
 
@@ -806,6 +1390,24 @@ function EnemyService:_createEnemyModel(enemyType: string, position: Vector3): M
 		body = buildShadeModel(cfg, position, model)
 	elseif enemyType == "MegaBoss" or enemyType == "Boss" then
 		body = buildBossModel(cfg, position, model, enemyType == "MegaBoss")
+	elseif enemyType == "Swarmling" then
+		body = buildSwarmlingModel(cfg, position, model)
+	elseif enemyType == "Spitter" then
+		body = buildSpitterModel(cfg, position, model)
+	elseif enemyType == "Lurker" then
+		body = buildLurkerModel(cfg, position, model)
+	elseif enemyType == "Crystalback" then
+		body = buildCrystalbackModel(cfg, position, model)
+	elseif enemyType == "Broodmother" then
+		body = buildBroodmotherModel(cfg, position, model)
+	elseif enemyType == "Leech" then
+		body = buildLeechModel(cfg, position, model)
+	elseif enemyType == "Hivemind" then
+		body = buildHivemindModel(cfg, position, model)
+	elseif enemyType == "Burrower" then
+		body = buildBurrowerModel(cfg, position, model)
+	elseif enemyType == "VoidWraith" then
+		body = buildVoidWraithModel(cfg, position, model)
 	else
 		-- Fallback: generic body
 		local fallbackBody = Instance.new("Part")
@@ -873,6 +1475,36 @@ function EnemyService:SpawnEnemy(enemyType: string, position: Vector3): EnemyDat
 		enemyData.ShadeState = "CIRCLE"
 	end
 
+	-- Spitter: init spit timer
+	if enemyType == "Spitter" then
+		enemyData.LastSpitTime = 0
+	end
+
+	-- Lurker: start visible
+	if enemyType == "Lurker" then
+		enemyData.TeleportPhase = "VISIBLE"
+		enemyData.LastTeleportTime = tick()
+	end
+
+	-- Broodmother: init spawn timer
+	if enemyType == "Broodmother" then
+		enemyData.LastSpawnTime = 0
+	end
+
+	-- Burrower: start surfaced
+	if enemyType == "Burrower" then
+		local burrowerCfg = (GameConfig.Enemies.Types :: any).Burrower
+		enemyData.BurrowState = "SURFACED"
+		enemyData.BurrowStateUntil = tick() + burrowerCfg.SurfaceDuration
+	end
+
+	-- VoidWraith: start solid
+	if enemyType == "VoidWraith" then
+		local wrCfg = (GameConfig.Enemies.Types :: any).VoidWraith
+		enemyData.PhaseState = "SOLID"
+		enemyData.PhaseStateUntil = tick() + wrCfg.PhaseInterval
+	end
+
 	-- MegaBoss: init attack timers
 	if enemyType == "MegaBoss" then
 		local now = tick()
@@ -904,6 +1536,31 @@ function EnemyService:DamageEnemy(enemy: EnemyData, damage: number, attacker: Pl
 	-- Shade: invulnerable during ascent
 	if enemy.ShadeState == "ASCEND" then
 		return
+	end
+
+	-- VoidWraith: immune when phased
+	if enemy.PhaseState == "PHASED" then
+		return
+	end
+
+	-- Burrower: immune when underground
+	if enemy.BurrowState == "BURROWED" then
+		return
+	end
+
+	-- Crystalback: front armor damage reduction
+	if enemy.Type == "Crystalback" then
+		local crystalCfg = (GameConfig.Enemies.Types :: any).Crystalback
+		local body = enemy.Model.PrimaryPart
+		if body then
+			-- Check if damage source is in front (use facing direction)
+			-- Approximate: reduce damage by front armor factor always
+			-- (full directional check would need attacker position)
+			damage = math.floor(damage * (1 - crystalCfg.FrontArmorReduction))
+			if damage < 1 then
+				damage = 1
+			end
+		end
 	end
 
 	enemy.Health -= damage
@@ -1567,6 +2224,247 @@ function EnemyService:_splitWorm(worm: WormData, deadSegmentIndex: number)
 end
 
 -------------------------------------------------
+-- NEW ENEMY AI
+-------------------------------------------------
+
+function EnemyService:_fireSpitterProjectile(startPos: Vector3, targetPos: Vector3, cfg: any)
+	local dir = (targetPos - startPos).Unit
+	local bolt = Instance.new("Part")
+	bolt.Name = "SpitterGlob"
+	bolt.Shape = Enum.PartType.Ball
+	bolt.Size = Vector3.one * 1.5
+	bolt.Color = Color3.fromRGB(80, 200, 40)
+	bolt.Material = Enum.Material.Neon
+	bolt.Anchored = true
+	bolt.CanCollide = false
+	bolt.CastShadow = false
+	bolt.Position = startPos + Vector3.new(0, 2, 0)
+	bolt.Parent = _enemyFolder
+
+	task.spawn(function()
+		local pos = startPos + Vector3.new(0, 2, 0)
+		local speed = cfg.ProjectileSpeed
+		local damage = cfg.ProjectileDamage
+		local maxDist = 60
+		local traveled = 0
+
+		while traveled < maxDist and bolt.Parent do
+			local dt2 = game:GetService("RunService").Heartbeat:Wait()
+			pos += dir * speed * dt2
+			bolt.Position = pos
+			traveled += speed * dt2
+
+			-- Check player hits
+			for player, stats in pairs(GameService:GetAllPlayerStats()) do
+				if stats.Health <= 0 then
+					continue
+				end
+				local char = player.Character
+				if not char then
+					continue
+				end
+				local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if root and (root.Position - pos).Magnitude < 3 then
+					GameService:DamagePlayer(player, damage)
+					bolt:Destroy()
+					return
+				end
+			end
+		end
+		if bolt.Parent then
+			bolt:Destroy()
+		end
+	end)
+end
+
+function EnemyService:_updateLurker(enemy: EnemyData, _dt: number, now: number)
+	if not enemy.Model or not enemy.Model.PrimaryPart then
+		return
+	end
+	local cfg = (GameConfig.Enemies.Types :: any).Lurker
+	local body = enemy.Model.PrimaryPart
+	local pos = body.Position
+
+	local phase = enemy.TeleportPhase or "VISIBLE"
+
+	if phase == "VISIBLE" then
+		-- Normal chase until teleport interval
+		if (now - (enemy.LastTeleportTime or 0)) >= cfg.TeleportInterval then
+			enemy.TeleportPhase = "TELEGRAPH"
+			enemy.TeleportPhaseUntil = now + cfg.TeleportTelegraph
+			-- Visual telegraph: make semi-transparent
+			body.Transparency = 0.7
+		else
+			-- Chase closest player
+			local target, dist = self:_findClosestPlayer(pos)
+			if target and target.Character then
+				local targetRoot = target.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if targetRoot then
+					local dir = (targetRoot.Position - pos)
+					local flat = Vector3.new(dir.X, 0, dir.Z)
+					local align = body:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+					if align and dist > enemy.AttackRange then
+						align.Position = pos + flat.Unit * enemy.Speed * 0.5
+					end
+					if dist <= enemy.AttackRange and (now - enemy.LastAttackTime) >= enemy.AttackCooldown then
+						enemy.LastAttackTime = now
+						GameService:DamagePlayer(target, enemy.Damage)
+					end
+				end
+			end
+		end
+	elseif phase == "TELEGRAPH" then
+		if now >= (enemy.TeleportPhaseUntil or 0) then
+			-- Teleport near closest player
+			local target = self:_findClosestPlayer(pos)
+			if target and target.Character then
+				local targetRoot = target.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if targetRoot then
+					local angle = math.random() * math.pi * 2
+					local dist2 = math.random() * cfg.TeleportRange
+					local newPos = targetRoot.Position
+						+ Vector3.new(math.cos(angle) * dist2, 0, math.sin(angle) * dist2)
+					local align = body:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+					if align then
+						align.Position = Vector3.new(newPos.X, body.Size.Y / 2, newPos.Z)
+					end
+					body.CFrame = CFrame.new(newPos.X, body.Size.Y / 2, newPos.Z)
+				end
+			end
+			enemy.TeleportPhase = "VISIBLE"
+			enemy.LastTeleportTime = now
+			body.Transparency = 0
+		end
+	end
+end
+
+function EnemyService:_updateBurrower(enemy: EnemyData, _dt: number, now: number)
+	if not enemy.Model or not enemy.Model.PrimaryPart then
+		return
+	end
+	local cfg = (GameConfig.Enemies.Types :: any).Burrower
+	local body = enemy.Model.PrimaryPart
+	local pos = body.Position
+
+	local state = enemy.BurrowState or "SURFACED"
+
+	if state == "SURFACED" then
+		if now >= (enemy.BurrowStateUntil or 0) then
+			-- Burrow underground
+			enemy.BurrowState = "BURROWED"
+			enemy.BurrowStateUntil = now + cfg.BurrowDuration
+			body.Transparency = 0.9
+			-- Move underground visually
+			local align = body:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+			if align then
+				align.Position = Vector3.new(pos.X, -1, pos.Z)
+			end
+		else
+			-- Normal chase + attack while surfaced
+			local target, dist = self:_findClosestPlayer(pos)
+			if target and target.Character then
+				local targetRoot = target.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if targetRoot then
+					local dir = (targetRoot.Position - pos)
+					local flat = Vector3.new(dir.X, 0, dir.Z)
+					local align = body:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+					if align and dist > enemy.AttackRange then
+						align.Position = pos + flat.Unit * enemy.Speed * 0.5
+					end
+					if dist <= enemy.AttackRange and (now - enemy.LastAttackTime) >= enemy.AttackCooldown then
+						enemy.LastAttackTime = now
+						GameService:DamagePlayer(target, enemy.Damage)
+					end
+				end
+			end
+		end
+	elseif state == "BURROWED" then
+		-- Move toward player underground (fast)
+		local target = self:_findClosestPlayer(pos)
+		if target and target.Character then
+			local targetRoot = target.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if targetRoot then
+				local dir = (targetRoot.Position - pos)
+				local flat = Vector3.new(dir.X, 0, dir.Z)
+				local align = body:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+				if align then
+					align.Position = pos + flat.Unit * enemy.Speed * 1.5 * 0.5
+					align.Position = Vector3.new(align.Position.X, -1, align.Position.Z)
+				end
+			end
+		end
+
+		if now >= (enemy.BurrowStateUntil or 0) then
+			-- Surface near player
+			enemy.BurrowState = "SURFACED"
+			enemy.BurrowStateUntil = now + cfg.SurfaceDuration
+			body.Transparency = 0
+			local align = body:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+			if align then
+				align.Position = Vector3.new(pos.X, body.Size.Y / 2, pos.Z)
+			end
+			-- Damage nearby players on surface
+			local target2 = self:_findClosestPlayer(pos)
+			if target2 then
+				local char = target2.Character
+				if char then
+					local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+					if root and (root.Position - pos).Magnitude < 8 then
+						GameService:DamagePlayer(target2, enemy.Damage)
+					end
+				end
+			end
+		end
+	end
+end
+
+function EnemyService:_updateVoidWraith(enemy: EnemyData, _dt: number, now: number)
+	if not enemy.Model or not enemy.Model.PrimaryPart then
+		return
+	end
+	local cfg = (GameConfig.Enemies.Types :: any).VoidWraith
+	local body = enemy.Model.PrimaryPart
+	local pos = body.Position
+
+	local phase = enemy.PhaseState or "SOLID"
+
+	-- Toggle phase
+	if now >= (enemy.PhaseStateUntil or 0) then
+		if phase == "SOLID" then
+			enemy.PhaseState = "PHASED"
+			enemy.PhaseStateUntil = now + cfg.PhaseDuration
+			body.Transparency = 0.8
+		else
+			enemy.PhaseState = "SOLID"
+			enemy.PhaseStateUntil = now + cfg.PhaseInterval
+			body.Transparency = 0.2
+		end
+	end
+
+	-- Chase and attack (only when solid)
+	local target, dist = self:_findClosestPlayer(pos)
+	if target and target.Character then
+		local targetRoot = target.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if targetRoot then
+			local dir = (targetRoot.Position - pos)
+			local flat = Vector3.new(dir.X, 0, dir.Z)
+			local align = body:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+			if align and dist > enemy.AttackRange then
+				align.Position = pos + flat.Unit * enemy.Speed * 0.5
+			end
+			if
+				enemy.PhaseState == "SOLID"
+				and dist <= enemy.AttackRange
+				and (now - enemy.LastAttackTime) >= enemy.AttackCooldown
+			then
+				enemy.LastAttackTime = now
+				GameService:DamagePlayer(target, enemy.Damage)
+			end
+		end
+	end
+end
+
+-------------------------------------------------
 -- ENEMY UPDATE LOOP
 -------------------------------------------------
 
@@ -1581,14 +2479,24 @@ function EnemyService:_updateEnemies(dt: number)
 			continue
 		end
 
-		-- Shade has custom AI
+		-- Custom AI for specific enemy types
 		if enemy.Type == "Shade" then
 			self:_updateShade(enemy, dt, now)
 			continue
 		end
-
-		-- Worm segments are handled by _updateWorms
 		if enemy.Type == "Worm" then
+			continue
+		end
+		if enemy.Type == "Lurker" then
+			self:_updateLurker(enemy, dt, now)
+			continue
+		end
+		if enemy.Type == "Burrower" then
+			self:_updateBurrower(enemy, dt, now)
+			continue
+		end
+		if enemy.Type == "VoidWraith" then
+			self:_updateVoidWraith(enemy, dt, now)
 			continue
 		end
 
@@ -1644,9 +2552,95 @@ function EnemyService:_updateEnemies(dt: number)
 			alignOrient.CFrame = CFrame.lookAt(Vector3.zero, flatDirection.Unit)
 		end
 
+		-- Spitter: ranged attack, retreats if player is close
+		if enemy.Type == "Spitter" then
+			local spitterCfg = (GameConfig.Enemies.Types :: any).Spitter
+			if dist < spitterCfg.RetreatRange and align then
+				-- Retreat away from player
+				local retreatDir = -flatDirection.Unit
+				local retreatPos = pos + retreatDir * enemy.Speed * dt * 10
+				align.Position = Vector3.new(retreatPos.X, body.Size.Y / 2, retreatPos.Z)
+			end
+			if (now - enemy.LastAttackTime) >= enemy.AttackCooldown and dist <= enemy.AttackRange then
+				enemy.LastAttackTime = now
+				self:_fireSpitterProjectile(pos, targetPos, spitterCfg)
+			end
+			continue
+		end
+
+		-- Broodmother: spawns swarmlings periodically
+		if enemy.Type == "Broodmother" then
+			local bmCfg = (GameConfig.Enemies.Types :: any).Broodmother
+			if (now - (enemy.LastSpawnTime or 0)) >= bmCfg.SpawnInterval then
+				enemy.LastSpawnTime = now
+				local maxConcurrent = GameService:GetMaxConcurrentEnemies()
+				local spawnCount = math.min(bmCfg.SpawnCount, maxConcurrent - #_enemies)
+				for s = 1, spawnCount do
+					local angle = (s / spawnCount) * math.pi * 2
+					local spawnPos = pos + Vector3.new(math.cos(angle) * 4, 0, math.sin(angle) * 4)
+					self:SpawnEnemy("Swarmling", spawnPos)
+				end
+			end
+		end
+
+		-- Leech: attaches to player on contact
+		if enemy.Type == "Leech" and enemy.AttachedTo then
+			-- Already attached — drain HP
+			local attachedChar = enemy.AttachedTo.Character
+			if not attachedChar or enemy.AttachedTo.Parent ~= Players then
+				enemy.AttachedTo = nil
+			else
+				local leechCfg = (GameConfig.Enemies.Types :: any).Leech
+				if (now - enemy.LastAttackTime) >= 1.0 then
+					enemy.LastAttackTime = now
+					GameService:DamagePlayer(enemy.AttachedTo, leechCfg.DrainDPS)
+				end
+				-- Follow attached player
+				local attachRoot = attachedChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if attachRoot and align then
+					align.Position = attachRoot.Position + Vector3.new(0, 2, 0)
+				end
+			end
+			continue
+		end
+
+		-- Hivemind: buffs nearby enemies
+		if enemy.Type == "Hivemind" then
+			local hmCfg = (GameConfig.Enemies.Types :: any).Hivemind
+			for _, other in _enemies do
+				if other == enemy or not other.Alive or not other.Model or not other.Model.PrimaryPart then
+					continue
+				end
+				local otherDist = (other.Model.PrimaryPart.Position - pos).Magnitude
+				if otherDist <= hmCfg.BuffRadius then
+					local otherAlign = other.Model.PrimaryPart:FindFirstChildOfClass("AlignPosition") :: AlignPosition?
+					if otherAlign then
+						otherAlign.MaxVelocity = other.Speed * (1 + hmCfg.SpeedBuff)
+					end
+				end
+			end
+		end
+
 		-- Attack (melee)
 		if dist <= enemy.AttackRange and (now - enemy.LastAttackTime) >= enemy.AttackCooldown then
 			enemy.LastAttackTime = now
+
+			-- Leech: try to attach instead of normal damage
+			if enemy.Type == "Leech" and not enemy.AttachedTo then
+				local leechCfg = (GameConfig.Enemies.Types :: any).Leech
+				-- Count existing leeches on this player
+				local attachedCount = 0
+				for _, e in _enemies do
+					if e.Type == "Leech" and e.AttachedTo == target then
+						attachedCount += 1
+					end
+				end
+				if attachedCount < leechCfg.MaxAttached then
+					enemy.AttachedTo = target
+				end
+				continue
+			end
+
 			GameService:DamagePlayer(target, enemy.Damage)
 		end
 	end
@@ -1706,6 +2700,17 @@ function EnemyService:_spawnWaveEnemies(wave: number, totalEnemies: number)
 			for f = 1, math.min(flockSize, totalEnemies - spawned) do
 				if #_enemies < maxConcurrent then
 					self:SpawnEnemy("Shade", positions[f] or positions[1])
+					spawned += 1
+				end
+			end
+		elseif enemyType == "Swarmling" then
+			-- Swarmlings spawn in large flocks
+			local swarmCfg = (GameConfig.Enemies.Types :: any).Swarmling
+			local flockSize = swarmCfg.FlockSize or 10
+			local positions = ArenaService:GetSpawnPositions(flockSize)
+			for f = 1, math.min(flockSize, totalEnemies - spawned) do
+				if #_enemies < maxConcurrent then
+					self:SpawnEnemy("Swarmling", positions[f] or positions[1])
 					spawned += 1
 				end
 			end
