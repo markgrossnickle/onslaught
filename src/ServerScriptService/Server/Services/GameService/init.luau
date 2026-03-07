@@ -259,6 +259,10 @@ function GameService:_initPlayerStats(player: Player): PlayerStats
 		if charDef.Passive.XPMult then
 			xpMult *= charDef.Passive.XPMult
 		end
+		if charDef.Passive.HealthRegen then
+			healthRegen += charDef.Passive.HealthRegen
+		end
+		-- CooldownMult and AreaMult are applied after CombatService:ResetPlayer in _startNewGame
 	end
 
 	local stats: PlayerStats = {
@@ -947,7 +951,7 @@ function GameService:_startNewRun()
 			-- Apply character starting weapon bonuses
 			local charDef = CharacterData.GetCharacter(self:GetPlayerStats(p).Character)
 			if charDef then
-				-- Berserker gets extra orbiters
+				-- Extra orbiters (Berserker)
 				if charDef.Passive.ExtraOrbiters then
 					local ws = CombatService:GetWeaponState(p)
 					if ws then
@@ -955,11 +959,39 @@ function GameService:_startNewRun()
 						CombatService:_rebuildOrbiters(p)
 					end
 				end
-				-- Guardian starts with Aura if unlocked
-				if charDef.StartingWeapon == "Aura" and charDef.Id == "Guardian" then
+
+				-- Apply starting weapon if not default Orbiter
+				if charDef.StartingWeapon ~= "Orbiter" then
 					local unlockedWeapons = StatsService and StatsService:GetUnlockedWeapons(p) or { Orbiter = true }
-					if unlockedWeapons["Aura"] then
-						CombatService:ApplyWeaponUpgrade(p, "NewAura")
+					-- Weapon acquisition card names follow "New<WeaponId>" pattern
+					local cardId = "New" .. charDef.StartingWeapon
+					if unlockedWeapons[charDef.StartingWeapon] then
+						CombatService:ApplyWeaponUpgrade(p, cardId)
+					end
+				end
+
+				-- Apply cooldown multiplier passive (Gunslinger)
+				if charDef.Passive.CooldownMult then
+					local ws = CombatService:GetWeaponState(p)
+					if ws then
+						ws.ProjectileFireInterval *= charDef.Passive.CooldownMult
+						ws.LightningFireInterval *= charDef.Passive.CooldownMult
+						ws.VoidWhipInterval *= charDef.Passive.CooldownMult
+						ws.ShadowDaggerInterval *= charDef.Passive.CooldownMult
+						ws.ShockwaveInterval *= charDef.Passive.CooldownMult
+						ws.ScytheInterval *= charDef.Passive.CooldownMult
+						ws.MissileInterval *= charDef.Passive.CooldownMult
+					end
+				end
+
+				-- Apply area multiplier passive (Engineer)
+				if charDef.Passive.AreaMult then
+					local ws = CombatService:GetWeaponState(p)
+					if ws then
+						ws.AuraRadius *= charDef.Passive.AreaMult
+						ws.GravityWellRadius *= charDef.Passive.AreaMult
+						ws.PlagueRadius *= charDef.Passive.AreaMult
+						ws.ShockwaveRadius *= charDef.Passive.AreaMult
 					end
 				end
 			end
