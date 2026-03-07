@@ -33,6 +33,7 @@ local CombatService = Knit.CreateService({
 
 local GameService: any
 local EnemyService: any
+local StatsService: any
 
 -- Per-player weapon state
 export type WeaponState = {
@@ -459,13 +460,20 @@ function CombatService:GetAvailableEvolution(player: Player): any?
 	end
 	local maxLevel = GameConfig.WeaponLevels.MaxLevel
 
+	-- EvolutionMaster relic: reduce required level
+	local evoMaster = 0
+	if StatsService then
+		evoMaster = StatsService:GetRelicLevels(player)["EvolutionMaster"] or 0
+	end
+	local requiredLevel = math.max(1, maxLevel - evoMaster)
+
 	for _, evo in GameConfig.Evolutions do
 		if ws.Evolutions[evo.Id] then
 			continue
 		end
 		local a = evo.Ingredients[1]
 		local b = evo.Ingredients[2]
-		if (ws.WeaponLevels[a] or 0) >= maxLevel and (ws.WeaponLevels[b] or 0) >= maxLevel then
+		if (ws.WeaponLevels[a] or 0) >= requiredLevel and (ws.WeaponLevels[b] or 0) >= requiredLevel then
 			return evo
 		end
 	end
@@ -1807,6 +1815,7 @@ end
 function CombatService:KnitStart()
 	GameService = Knit.GetService("GameService")
 	EnemyService = Knit.GetService("EnemyService")
+	StatsService = Knit.GetService("StatsService")
 
 	RunService.Heartbeat:Connect(function(dt: number)
 		self:_updateOrbiters(dt)

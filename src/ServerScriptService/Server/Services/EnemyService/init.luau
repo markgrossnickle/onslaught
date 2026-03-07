@@ -122,6 +122,7 @@ local BOSS_TYPES: { [string]: boolean } = {
 local GameService: any
 local ArenaService: any
 local CombatService: any
+local StatsService: any
 
 -------------------------------------------------
 -- HELPER: create smoke emitter for void enemies
@@ -1628,6 +1629,14 @@ function EnemyService:DamageEnemy(enemy: EnemyData, damage: number, attacker: Pl
 		return
 	end
 
+	-- CriticalStrike relic: chance to deal double damage
+	if attacker and StatsService then
+		local critTier = StatsService:GetRelicLevels(attacker)["CriticalStrike"] or 0
+		if critTier > 0 and math.random() < critTier * 0.05 then
+			damage *= 2
+		end
+	end
+
 	-- Crystalback: front armor damage reduction
 	if enemy.Type == "Crystalback" then
 		local crystalCfg = (GameConfig.Enemies.Types :: any).Crystalback
@@ -1701,6 +1710,22 @@ function EnemyService:_killEnemy(enemy: EnemyData, killer: Player?)
 
 	-- Spawn XP gem
 	GameService:SpawnXPGem(deathPos, enemy.XPValue)
+
+	-- ExplosiveFinish relic: enemies explode on death
+	if killer and StatsService then
+		local explosive = StatsService:GetRelicLevels(killer)["ExplosiveFinish"] or 0
+		if explosive > 0 then
+			local explosionDamage = explosive * 5
+			local explosionRadius = 5
+			for _, other in _enemies do
+				if other ~= enemy and other.Alive and other.Model and other.Model.PrimaryPart then
+					if (other.Model.PrimaryPart.Position - deathPos).Magnitude <= explosionRadius then
+						self:DamageEnemy(other, explosionDamage, killer)
+					end
+				end
+			end
+		end
+	end
 
 	-- Check if mega-boss was killed
 	if enemy.Type == "MegaBoss" then
@@ -3421,6 +3446,7 @@ function EnemyService:KnitStart()
 	GameService = Knit.GetService("GameService")
 	ArenaService = Knit.GetService("ArenaService")
 	CombatService = Knit.GetService("CombatService")
+	StatsService = Knit.GetService("StatsService")
 
 	-- Listen for wave starts
 	GameService.WaveStarted:Connect(function(wave: number, enemyCount: number)

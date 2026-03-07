@@ -116,6 +116,14 @@ function GameService:EnemyKilled(killerPlayer: Player?)
 		if stats then
 			stats.Kills += 1
 		end
+
+		-- Bloodlust relic: heal on kill
+		if StatsService then
+			local bloodlust = StatsService:GetRelicLevels(killerPlayer)["Bloodlust"] or 0
+			if bloodlust > 0 and stats and stats.Health > 0 then
+				self:HealPlayer(killerPlayer, bloodlust)
+			end
+		end
 	end
 	if _enemiesRemaining <= 0 and _state == "Wave" then
 		self:_endWave()
@@ -323,6 +331,14 @@ function GameService:DamagePlayer(player: Player, damage: number)
 		return
 	end
 
+	-- VoidArmor relic: reduce damage taken
+	if StatsService then
+		local voidArmor = StatsService:GetRelicLevels(player)["VoidArmor"] or 0
+		if voidArmor > 0 then
+			damage = math.max(1, math.floor(damage * (1 - voidArmor * 0.05)))
+		end
+	end
+
 	stats.Health = math.max(0, stats.Health - damage)
 
 	-- Last Stand relic: survive one killing blow per run
@@ -378,6 +394,12 @@ function GameService:_onPlayerDied(player: Player)
 		local cfg = GameConfig.Player
 		local deathCount = stats and stats.DeathCount or 1
 		local respawnDelay = math.min(cfg.BaseRespawnDelay + deathCount * cfg.RespawnDelayPerDeath, cfg.MaxRespawnDelay)
+
+		-- Revitalize relic: reduce respawn delay
+		if StatsService then
+			local revitalize = StatsService:GetRelicLevels(player)["Revitalize"] or 0
+			respawnDelay = math.max(1, respawnDelay - revitalize)
+		end
 
 		-- Send respawn countdown to the dead player
 		task.spawn(function()
@@ -584,8 +606,17 @@ function GameService:_collectGem(player: Player, gem: XPGem)
 		gem.Part:Destroy()
 	end
 
-	self:AddXP(player, gem.Value)
-	self.Client.XPGemCollected:Fire(player, gem.Value)
+	local value = gem.Value
+	-- GemMagnet relic: bonus gem value
+	if StatsService then
+		local gemMagnet = StatsService:GetRelicLevels(player)["GemMagnet"] or 0
+		if gemMagnet > 0 then
+			value = math.floor(value * (1 + gemMagnet * 0.20))
+		end
+	end
+
+	self:AddXP(player, value)
+	self.Client.XPGemCollected:Fire(player, value)
 end
 
 function GameService:MagnetBurstAllGems(player: Player)
@@ -992,6 +1023,26 @@ function GameService:_startNewRun()
 						ws.GravityWellRadius *= charDef.Passive.AreaMult
 						ws.PlagueRadius *= charDef.Passive.AreaMult
 						ws.ShockwaveRadius *= charDef.Passive.AreaMult
+					end
+				end
+			end
+
+			-- WeaponMastery relic: attack speed bonus
+			if StatsService then
+				local mastery = StatsService:GetRelicLevels(p)["WeaponMastery"] or 0
+				if mastery > 0 then
+					local ws = CombatService:GetWeaponState(p)
+					if ws then
+						local mult = 1 - mastery * 0.03
+						ws.ProjectileFireInterval *= mult
+						ws.LightningFireInterval *= mult
+						ws.VoidWhipInterval *= mult
+						ws.ShadowDaggerInterval *= mult
+						ws.ShockwaveInterval *= mult
+						ws.ScytheInterval *= mult
+						ws.MissileInterval *= mult
+						ws.GravityWellInterval *= mult
+						ws.AuraTickInterval *= mult
 					end
 				end
 			end
