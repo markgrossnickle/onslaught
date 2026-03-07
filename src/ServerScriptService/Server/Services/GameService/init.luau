@@ -23,6 +23,7 @@ local GameService = Knit.CreateService({
 		GameTimerTick = Knit.CreateSignal(), -- (elapsedSeconds: number)
 		GameOverData = Knit.CreateSignal(), -- (data: GameOverData)
 		RespawnCountdown = Knit.CreateSignal(), -- (secondsLeft: number)
+		FirstRunTutorial = Knit.CreateSignal(), -- () fired to first-time players
 	},
 
 	WaveStarted = Signal.new(),
@@ -90,6 +91,8 @@ local ENRAGE_TIME = RUN_DURATION -- 15 minutes
 local _megaBossSpawned: boolean = false
 local _lobbyReadyPlayers: { [Player]: boolean } = {}
 local _lobbyTimeout: number = 30
+local _hasMobilePlayer: boolean = false
+local _firstGame: boolean = true
 
 function GameService:GetState(): GameState
 	return _state
@@ -464,11 +467,26 @@ end
 -- XP GEMS
 -------------------------------------------------
 
+function GameService:HasMobilePlayer(): boolean
+	return _hasMobilePlayer
+end
+
+function GameService:GetMaxConcurrentEnemies(): number
+	if _hasMobilePlayer then
+		return GameConfig.Mobile.MaxConcurrentEnemies
+	end
+	return GameConfig.Enemies.MaxConcurrent
+end
+
 function GameService:SpawnXPGem(position: Vector3, value: number)
 	local cfg = GameConfig.XPGems
 
-	-- Cap gems to prevent performance issues; remove oldest if at limit
-	if #_xpGems >= cfg.MaxGems then
+	-- Cap gems to prevent performance issues; use mobile cap if any mobile player
+	local maxGems = cfg.MaxGems
+	if _hasMobilePlayer then
+		maxGems = GameConfig.Mobile.MaxGems
+	end
+	if #_xpGems >= maxGems then
 		local oldest = _xpGems[1]
 		if oldest.Part and oldest.Part.Parent then
 			oldest.Part:Destroy()
@@ -961,6 +979,13 @@ function GameService.Client:PlayAgain(_player: Player): boolean
 	return true
 end
 
+function GameService.Client:ReportPlatform(_player: Player, platform: string): boolean
+	if platform == "Mobile" then
+		_hasMobilePlayer = true
+	end
+	return true
+end
+
 -------------------------------------------------
 -- LIFECYCLE
 -------------------------------------------------
@@ -1005,7 +1030,7 @@ function GameService:KnitStart()
 		end
 	end)
 
-	-- Wait for first player, then start
+	-- Wait for first player, then enter lobby (allows character select before first run)
 	task.spawn(function()
 		if #Players:GetPlayers() == 0 then
 			Players.PlayerAdded:Wait()
@@ -1016,8 +1041,21 @@ function GameService:KnitStart()
 			self:_respawnPlayer(player)
 		end
 
-		task.wait(2)
-		self:StartGame()
+		task.wait(1)
+		_firstGame = true
+		self:_enterLobby()
+
+		-- Send first-run tutorial to new players
+		task.defer(function()
+			for _, player in Players:GetPlayers() do
+				if StatsService then
+					local lifetimeStats = StatsService:GetLifetimeStats(player)
+					if lifetimeStats and lifetimeStats.TotalRuns == 0 then
+						self.Client.FirstRunTutorial:Fire(player)
+					end
+				end
+			end
+		end)
 	end)
 
 	-- Regen loop

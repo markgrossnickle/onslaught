@@ -510,4 +510,19 @@ GameConfig.PowerUps = {
 	ChestMinDistFromEdge = 20,
 }
 
+-- Mobile overrides (TouchEnabled + no keyboard)
+GameConfig.Mobile = {
+	MaxConcurrentEnemies = 120,
+	MaxGems = 150,
+	ParticleRateMult = 0.5,
+	TrailLifetimeMult = 0.5,
+	CameraDistanceMult = 1.2,
+	AnimFrameSkip = 2, -- animate every Nth frame
+}
+
+-- Console overrides (ten-foot interface)
+GameConfig.Console = {
+	TextSizeMult = 1.2,
+}
+
 return table.freeze(GameConfig)

@@ -1252,7 +1252,7 @@ function EnemyService:_updateBossAI(enemy: EnemyData, _dt: number, now: number)
 		enemy.BossStateUntil = now + 1.0
 
 		-- Spawn drones from body
-		local spawnCount = math.min(cfg.SpawnMinionsCount, GameConfig.Enemies.MaxConcurrent - #_enemies)
+		local spawnCount = math.min(cfg.SpawnMinionsCount, GameService:GetMaxConcurrentEnemies() - #_enemies)
 		for i = 1, spawnCount do
 			local angle = (i / spawnCount) * math.pi * 2
 			local spawnPos = pos + Vector3.new(math.cos(angle) * 8, 0, math.sin(angle) * 8)
@@ -1677,7 +1677,7 @@ end
 function EnemyService:_spawnWaveEnemies(wave: number, totalEnemies: number)
 	_spawning = true
 	local waveCfg = GameConfig.Waves
-	local maxConcurrent = GameConfig.Enemies.MaxConcurrent
+	local maxConcurrent = GameService:GetMaxConcurrentEnemies()
 
 	-- Calculate spawn interval with acceleration
 	local spawnInterval =
@@ -1749,7 +1749,7 @@ function EnemyService:_checkBossSpawn()
 		return
 	end
 
-	if #_enemies >= enemyCfg.MaxConcurrent then
+	if #_enemies >= GameService:GetMaxConcurrentEnemies() then
 		return
 	end
 

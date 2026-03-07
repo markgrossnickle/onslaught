@@ -1,12 +1,16 @@
 --!strict
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
 local RelicData = require(ReplicatedStorage.Shared.RelicData)
 local CharacterData = require(ReplicatedStorage.Shared.CharacterData)
+local PlatformUtil = require(ReplicatedStorage.Shared.PlatformUtil)
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -14,6 +18,13 @@ local PlayerGui = Player:WaitForChild("PlayerGui")
 local HUDController = Knit.CreateController({
 	Name = "HUDController",
 })
+
+-- Platform state
+local _isMobile = false
+local _isConsole = false
+local _hasGamepad = false
+local _textScale = 1.0
+local _isFirstRun = false
 
 local _screenGui: ScreenGui = nil :: any
 local _healthFill: Frame = nil :: any
@@ -34,17 +45,30 @@ local _bossBarFrame: Frame = nil :: any
 local _bossBarFill: Frame = nil :: any
 local _bossBarTitle: TextLabel = nil :: any
 local _buffFrame: Frame = nil :: any
+local _settingsBtn: TextButton = nil :: any
 local _activeBuffIcons: { [string]: { Frame: Frame, EndTime: number } } = {}
+
+-- Gamepad state
+local _gamepadCards: { TextButton } = {}
+local _gamepadSelectedIndex = 1
+
+local function ts(size: number): number
+	return math.floor(size * _textScale)
+end
 
 local function createLabel(parent: Instance, props: { [string]: any }): TextLabel
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
 	label.TextColor3 = Color3.fromRGB(255, 255, 255)
 	label.Font = Enum.Font.GothamBold
-	label.TextSize = 18
+	label.TextSize = ts(18)
 	label.TextXAlignment = Enum.TextXAlignment.Left
 	for k, v in props do
-		(label :: any)[k] = v
+		if k == "TextSize" then
+			(label :: any)[k] = ts(v)
+		else
+			(label :: any)[k] = v
+		end
 	end
 	label.Parent = parent
 	return label
@@ -55,11 +79,16 @@ local function createButton(parent: Instance, props: { [string]: any }): TextBut
 	btn.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
 	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	btn.Font = Enum.Font.GothamBold
-	btn.TextSize = 16
+	btn.TextSize = ts(16)
 	btn.BorderSizePixel = 0
 	btn.AutoButtonColor = true
+	btn.Selectable = true -- for gamepad
 	for k, v in props do
-		(btn :: any)[k] = v
+		if k == "TextSize" then
+			(btn :: any)[k] = ts(v)
+		else
+			(btn :: any)[k] = v
+		end
 	end
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, 8)
@@ -74,6 +103,29 @@ local function formatTime(seconds: number): string
 	return string.format("%d:%02d", mins, secs)
 end
 
+-- Adds "[A]" prompt to a button when gamepad is detected
+local function addGamepadPrompt(btn: TextButton, label: string)
+	if not _hasGamepad and not _isConsole then
+		return
+	end
+	local existing = btn:FindFirstChild("GamepadPrompt")
+	if existing then
+		existing:Destroy()
+	end
+	local prompt = Instance.new("TextLabel")
+	prompt.Name = "GamepadPrompt"
+	prompt.Size = UDim2.new(0, 30, 0, 20)
+	prompt.Position = UDim2.new(1, -35, 0, 2)
+	prompt.BackgroundTransparency = 1
+	prompt.Text = label
+	prompt.TextColor3 = Color3.fromRGB(180, 180, 255)
+	prompt.Font = Enum.Font.GothamBold
+	prompt.TextSize = ts(11)
+	prompt.TextXAlignment = Enum.TextXAlignment.Right
+	prompt.ZIndex = btn.ZIndex + 1
+	prompt.Parent = btn
+end
+
 function HUDController:_buildUI()
 	_screenGui = Instance.new("ScreenGui")
 	_screenGui.Name = "OnslaughtHUD"
@@ -81,11 +133,14 @@ function HUDController:_buildUI()
 	_screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	_screenGui.Parent = PlayerGui
 
-	-- Health Bar (bottom left)
+	-- Health Bar (bottom left) — responsive width
+	local healthWidth = if _isMobile then UDim2.new(0.4, 0, 0, 26) else UDim2.new(0, 300, 0, 30)
+	local healthPos = if _isMobile then UDim2.new(0.02, 0, 1, -55) else UDim2.new(0, 20, 1, -60)
+
 	local healthContainer = Instance.new("Frame")
 	healthContainer.Name = "HealthContainer"
-	healthContainer.Size = UDim2.new(0, 300, 0, 30)
-	healthContainer.Position = UDim2.new(0, 20, 1, -60)
+	healthContainer.Size = healthWidth
+	healthContainer.Position = healthPos
 	healthContainer.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 	healthContainer.BorderSizePixel = 0
 	healthContainer.Parent = _screenGui
@@ -110,14 +165,14 @@ function HUDController:_buildUI()
 		Size = UDim2.new(1, 0, 1, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "100 / 100",
-		TextSize = 16,
+		TextSize = if _isMobile then 13 else 16,
 		ZIndex = 2,
 	})
 
 	-- XP Bar (bottom, full width)
 	local xpContainer = Instance.new("Frame")
 	xpContainer.Name = "XPContainer"
-	xpContainer.Size = UDim2.new(1, -40, 0, 14)
+	xpContainer.Size = UDim2.new(1, -40, 0, if _isMobile then 10 else 14)
 	xpContainer.Position = UDim2.new(0, 20, 1, -20)
 	xpContainer.BackgroundColor3 = Color3.fromRGB(20, 20, 40)
 	xpContainer.BorderSizePixel = 0
@@ -143,50 +198,50 @@ function HUDController:_buildUI()
 		Size = UDim2.new(1, 0, 1, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "XP: 0",
-		TextSize = 11,
+		TextSize = if _isMobile then 9 else 11,
 		ZIndex = 2,
 	})
 
 	-- Level text
 	_levelText = createLabel(_screenGui, {
 		Name = "LevelText",
-		Size = UDim2.new(0, 200, 0, 30),
-		Position = UDim2.new(0, 20, 1, -100),
+		Size = if _isMobile then UDim2.new(0.3, 0, 0, 24) else UDim2.new(0, 200, 0, 30),
+		Position = if _isMobile then UDim2.new(0.02, 0, 1, -82) else UDim2.new(0, 20, 1, -100),
 		Text = "Level 1",
-		TextSize = 20,
+		TextSize = if _isMobile then 16 else 20,
 		Font = Enum.Font.GothamBold,
 	})
 
 	-- Timer (top center)
 	_timerText = createLabel(_screenGui, {
 		Name = "TimerText",
-		Size = UDim2.new(0, 200, 0, 30),
-		Position = UDim2.new(0.5, -100, 0, 10),
+		Size = UDim2.new(0.3, 0, 0, 30),
+		Position = UDim2.new(0.35, 0, 0, 10),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "0:00",
-		TextSize = 22,
+		TextSize = if _isMobile then 18 else 22,
 		Font = Enum.Font.GothamBlack,
 	})
 
 	-- Wave info (top center, below timer)
 	_waveText = createLabel(_screenGui, {
 		Name = "WaveText",
-		Size = UDim2.new(0, 400, 0, 30),
-		Position = UDim2.new(0.5, -200, 0, 40),
+		Size = UDim2.new(0.5, 0, 0, 30),
+		Position = UDim2.new(0.25, 0, 0, 40),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "Wave 1",
-		TextSize = 22,
+		TextSize = if _isMobile then 18 else 22,
 		Font = Enum.Font.GothamBlack,
 	})
 
 	-- State text (upper center, for announcements)
 	_stateText = createLabel(_screenGui, {
 		Name = "StateText",
-		Size = UDim2.new(0, 600, 0, 60),
-		Position = UDim2.new(0.5, -300, 0.25, 0),
+		Size = UDim2.new(0.8, 0, 0, 60),
+		Position = UDim2.new(0.1, 0, 0.25, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "",
-		TextSize = 36,
+		TextSize = if _isMobile then 28 else 36,
 		Font = Enum.Font.GothamBlack,
 		TextTransparency = 1,
 	})
@@ -194,21 +249,21 @@ function HUDController:_buildUI()
 	-- Kills (top right)
 	_killsText = createLabel(_screenGui, {
 		Name = "KillsText",
-		Size = UDim2.new(0, 200, 0, 30),
-		Position = UDim2.new(1, -220, 0, 20),
+		Size = UDim2.new(0.25, 0, 0, 30),
+		Position = UDim2.new(0.74, 0, 0, 20),
 		TextXAlignment = Enum.TextXAlignment.Right,
 		Text = "Kills: 0",
-		TextSize = 20,
+		TextSize = if _isMobile then 16 else 20,
 	})
 
 	-- Souls (top right, below kills)
 	_soulsText = createLabel(_screenGui, {
 		Name = "SoulsText",
-		Size = UDim2.new(0, 200, 0, 24),
-		Position = UDim2.new(1, -220, 0, 50),
+		Size = UDim2.new(0.25, 0, 0, 24),
+		Position = UDim2.new(0.74, 0, 0, 50),
 		TextXAlignment = Enum.TextXAlignment.Right,
 		Text = "Souls: 0",
-		TextSize = 16,
+		TextSize = if _isMobile then 13 else 16,
 		TextColor3 = Color3.fromRGB(200, 160, 255),
 	})
 
@@ -229,6 +284,75 @@ function HUDController:_buildUI()
 
 	-- Buff indicator strip
 	self:_buildBuffFrame()
+
+	-- Settings gear button (top-right, always visible)
+	self:_buildSettingsButton()
+end
+
+-------------------------------------------------
+-- SETTINGS BUTTON
+-------------------------------------------------
+
+function HUDController:_buildSettingsButton()
+	local btnSize = if _isMobile then 48 else 36
+
+	_settingsBtn = Instance.new("TextButton")
+	_settingsBtn.Name = "SettingsBtn"
+	_settingsBtn.Size = UDim2.new(0, btnSize, 0, btnSize)
+	_settingsBtn.Position = UDim2.new(1, -(btnSize + 8), 0, 8)
+	_settingsBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+	_settingsBtn.BackgroundTransparency = 0.3
+	_settingsBtn.BorderSizePixel = 0
+	_settingsBtn.Text = "\u{2699}"
+	_settingsBtn.TextColor3 = Color3.fromRGB(200, 200, 220)
+	_settingsBtn.Font = Enum.Font.GothamBold
+	_settingsBtn.TextSize = ts(if _isMobile then 28 else 22)
+	_settingsBtn.AutoButtonColor = true
+	_settingsBtn.ZIndex = 90
+	_settingsBtn.Parent = _screenGui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = _settingsBtn
+
+	_settingsBtn.MouseButton1Click:Connect(function()
+		self:_toggleSettingsMenu()
+	end)
+end
+
+function HUDController:_toggleSettingsMenu()
+	local existing = _screenGui:FindFirstChild("SettingsMenu")
+	if existing then
+		existing:Destroy()
+		return
+	end
+
+	local menu = Instance.new("Frame")
+	menu.Name = "SettingsMenu"
+	menu.Size = UDim2.new(0, 200, 0, 60)
+	menu.Position = UDim2.new(1, -208, 0, if _isMobile then 60 else 48)
+	menu.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+	menu.BorderSizePixel = 0
+	menu.ZIndex = 91
+	menu.Parent = _screenGui
+
+	local menuCorner = Instance.new("UICorner")
+	menuCorner.CornerRadius = UDim.new(0, 8)
+	menuCorner.Parent = menu
+
+	local leaveBtn = createButton(menu, {
+		Name = "LeaveBtn",
+		Size = UDim2.new(1, -16, 0, 40),
+		Position = UDim2.new(0, 8, 0, 10),
+		BackgroundColor3 = Color3.fromRGB(180, 40, 40),
+		Text = "Leave Game",
+		TextSize = 16,
+		ZIndex = 92,
+	})
+
+	leaveBtn.MouseButton1Click:Connect(function()
+		game:GetService("TeleportService"):Teleport(game.PlaceId, Player)
+	end)
 end
 
 -------------------------------------------------
@@ -236,10 +360,14 @@ end
 -------------------------------------------------
 
 function HUDController:_buildWeaponList()
+	-- Mobile: compact icon-only list; PC/Console: full labels
+	local listWidth = if _isMobile then 32 else 140
+	local listHeight = if _isMobile then 160 else 200
+
 	_weaponListFrame = Instance.new("Frame")
 	_weaponListFrame.Name = "WeaponList"
-	_weaponListFrame.Size = UDim2.new(0, 140, 0, 200)
-	_weaponListFrame.Position = UDim2.new(0, 10, 0.5, -100)
+	_weaponListFrame.Size = UDim2.new(0, listWidth, 0, listHeight)
+	_weaponListFrame.Position = UDim2.new(0, if _isMobile then 4 else 10, 0.5, -(listHeight / 2))
 	_weaponListFrame.BackgroundTransparency = 1
 	_weaponListFrame.BorderSizePixel = 0
 	_weaponListFrame.Parent = _screenGui
@@ -282,42 +410,69 @@ function HUDController:_updateWeaponList(stats: any)
 	}
 
 	for _, weaponName in weapons do
-		local entry = Instance.new("Frame")
-		entry.Name = weaponName
-		entry.Size = UDim2.new(1, 0, 0, 24)
-		entry.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-		entry.BackgroundTransparency = 0.4
-		entry.BorderSizePixel = 0
-		entry.Parent = _weaponListFrame
+		if _isMobile then
+			-- Icon-only: small colored dot
+			local entry = Instance.new("Frame")
+			entry.Name = weaponName
+			entry.Size = UDim2.new(1, 0, 0, 28)
+			entry.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+			entry.BackgroundTransparency = 0.4
+			entry.BorderSizePixel = 0
+			entry.Parent = _weaponListFrame
 
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0, 4)
-		corner.Parent = entry
+			local entryCorner = Instance.new("UICorner")
+			entryCorner.CornerRadius = UDim.new(0, 6)
+			entryCorner.Parent = entry
 
-		local dot = Instance.new("Frame")
-		dot.Size = UDim2.new(0, 12, 0, 12)
-		dot.Position = UDim2.new(0, 6, 0.5, -6)
-		dot.BackgroundColor3 = weaponColors[weaponName] or Color3.fromRGB(200, 200, 200)
-		dot.BorderSizePixel = 0
-		dot.Parent = entry
+			local dot = Instance.new("Frame")
+			dot.Size = UDim2.new(0, 16, 0, 16)
+			dot.Position = UDim2.new(0.5, -8, 0.5, -8)
+			dot.BackgroundColor3 = weaponColors[weaponName] or Color3.fromRGB(200, 200, 200)
+			dot.BorderSizePixel = 0
+			dot.Parent = entry
 
-		local dotCorner = Instance.new("UICorner")
-		dotCorner.CornerRadius = UDim.new(1, 0)
-		dotCorner.Parent = dot
+			local dotCorner = Instance.new("UICorner")
+			dotCorner.CornerRadius = UDim.new(1, 0)
+			dotCorner.Parent = dot
+		else
+			-- Full entry with name
+			local entry = Instance.new("Frame")
+			entry.Name = weaponName
+			entry.Size = UDim2.new(1, 0, 0, 24)
+			entry.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+			entry.BackgroundTransparency = 0.4
+			entry.BorderSizePixel = 0
+			entry.Parent = _weaponListFrame
 
-		createLabel(entry, {
-			Name = "WeaponName",
-			Size = UDim2.new(1, -26, 1, 0),
-			Position = UDim2.new(0, 24, 0, 0),
-			Text = weaponName,
-			TextSize = 13,
-			Font = Enum.Font.GothamBold,
-		})
+			local entryCorner = Instance.new("UICorner")
+			entryCorner.CornerRadius = UDim.new(0, 4)
+			entryCorner.Parent = entry
+
+			local dot = Instance.new("Frame")
+			dot.Size = UDim2.new(0, 12, 0, 12)
+			dot.Position = UDim2.new(0, 6, 0.5, -6)
+			dot.BackgroundColor3 = weaponColors[weaponName] or Color3.fromRGB(200, 200, 200)
+			dot.BorderSizePixel = 0
+			dot.Parent = entry
+
+			local dotCorner = Instance.new("UICorner")
+			dotCorner.CornerRadius = UDim.new(1, 0)
+			dotCorner.Parent = dot
+
+			createLabel(entry, {
+				Name = "WeaponName",
+				Size = UDim2.new(1, -26, 1, 0),
+				Position = UDim2.new(0, 24, 0, 0),
+				Text = weaponName,
+				TextSize = 13,
+				Font = Enum.Font.GothamBold,
+			})
+		end
 	end
 end
 
 -------------------------------------------------
--- CARD FRAME
+-- CARD FRAME (Level-Up)
 -------------------------------------------------
 
 function HUDController:_buildCardFrame()
@@ -335,10 +490,10 @@ function HUDController:_buildCardFrame()
 	createLabel(_cardFrame, {
 		Name = "Title",
 		Size = UDim2.new(1, 0, 0, 50),
-		Position = UDim2.new(0, 0, 0.15, 0),
+		Position = UDim2.new(0, 0, 0.12, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "LEVEL UP! Choose an upgrade:",
-		TextSize = 30,
+		TextSize = if _isMobile then 24 else 30,
 		Font = Enum.Font.GothamBlack,
 		TextColor3 = Color3.fromRGB(255, 220, 50),
 		ZIndex = 51,
@@ -353,10 +508,12 @@ function HUDController:ShowUpgradeCards(cards: { { Id: string, Name: string, Des
 	end
 
 	_cardFrame.Visible = true
+	table.clear(_gamepadCards)
 
-	local cardWidth = 160
-	local cardHeight = 200
-	local gap = 20
+	-- Mobile: larger cards; PC: standard
+	local cardWidth = if _isMobile then 200 else 160
+	local cardHeight = if _isMobile then 240 else 200
+	local gap = if _isMobile then 12 else 20
 	local totalWidth = #cards * cardWidth + (#cards - 1) * gap
 	local startX = -totalWidth / 2
 
@@ -369,6 +526,7 @@ function HUDController:ShowUpgradeCards(cards: { { Id: string, Name: string, Des
 		btn.BorderSizePixel = 0
 		btn.Text = ""
 		btn.AutoButtonColor = true
+		btn.Selectable = true
 		btn.ZIndex = 52
 		btn.Parent = _cardFrame
 
@@ -377,6 +535,7 @@ function HUDController:ShowUpgradeCards(cards: { { Id: string, Name: string, Des
 		btnCorner.Parent = btn
 
 		local stroke = Instance.new("UIStroke")
+		stroke.Name = "CardStroke"
 		stroke.Color = Color3.fromRGB(100, 100, 200)
 		stroke.Thickness = 2
 		stroke.Parent = btn
@@ -388,19 +547,19 @@ function HUDController:ShowUpgradeCards(cards: { { Id: string, Name: string, Des
 		nameLabel.Text = card.Name
 		nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 		nameLabel.Font = Enum.Font.GothamBlack
-		nameLabel.TextSize = 18
+		nameLabel.TextSize = ts(if _isMobile then 20 else 18)
 		nameLabel.TextWrapped = true
 		nameLabel.ZIndex = 53
 		nameLabel.Parent = btn
 
 		local descLabel = Instance.new("TextLabel")
-		descLabel.Size = UDim2.new(1, -16, 0, 80)
-		descLabel.Position = UDim2.new(0, 8, 0, 80)
+		descLabel.Size = UDim2.new(1, -16, 0, if _isMobile then 100 else 80)
+		descLabel.Position = UDim2.new(0, 8, 0, if _isMobile then 90 else 80)
 		descLabel.BackgroundTransparency = 1
 		descLabel.Text = card.Description
 		descLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
 		descLabel.Font = Enum.Font.GothamBold
-		descLabel.TextSize = 14
+		descLabel.TextSize = ts(if _isMobile then 16 else 14)
 		descLabel.TextWrapped = true
 		descLabel.ZIndex = 53
 		descLabel.Parent = btn
@@ -413,6 +572,7 @@ function HUDController:ShowUpgradeCards(cards: { { Id: string, Name: string, Des
 			end)
 		end)
 
+		-- Hover effects (no hover state issues on touch — MouseEnter doesn't fire)
 		btn.MouseEnter:Connect(function()
 			btn.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
 			stroke.Color = Color3.fromRGB(180, 180, 255)
@@ -421,6 +581,30 @@ function HUDController:ShowUpgradeCards(cards: { { Id: string, Name: string, Des
 			btn.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
 			stroke.Color = Color3.fromRGB(100, 100, 200)
 		end)
+
+		table.insert(_gamepadCards, btn)
+	end
+
+	-- Gamepad: select first card
+	if (_hasGamepad or _isConsole) and #_gamepadCards > 0 then
+		_gamepadSelectedIndex = 1
+		self:_highlightCard(_gamepadSelectedIndex)
+		GuiService.SelectedObject = _gamepadCards[1]
+	end
+end
+
+function HUDController:_highlightCard(index: number)
+	for i, btn in _gamepadCards do
+		local stroke = btn:FindFirstChild("CardStroke") :: UIStroke?
+		if stroke then
+			if i == index then
+				stroke.Color = Color3.fromRGB(255, 220, 50)
+				stroke.Thickness = 3
+			else
+				stroke.Color = Color3.fromRGB(100, 100, 200)
+				stroke.Thickness = 2
+			end
+		end
 	end
 end
 
@@ -445,7 +629,7 @@ function HUDController:_buildGameOverFrame()
 		Position = UDim2.new(0, 0, 0.15, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "GAME OVER",
-		TextSize = 48,
+		TextSize = if _isMobile then 36 else 48,
 		Font = Enum.Font.GothamBlack,
 		TextColor3 = Color3.fromRGB(220, 40, 40),
 		ZIndex = 61,
@@ -457,7 +641,7 @@ function HUDController:_buildGameOverFrame()
 		Position = UDim2.new(0, 0, 0.3, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "Survival Time: 0:00",
-		TextSize = 22,
+		TextSize = if _isMobile then 18 else 22,
 		ZIndex = 61,
 	})
 
@@ -467,7 +651,7 @@ function HUDController:_buildGameOverFrame()
 		Position = UDim2.new(0, 0, 0.35, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "Kills: 0",
-		TextSize = 22,
+		TextSize = if _isMobile then 18 else 22,
 		ZIndex = 61,
 	})
 
@@ -477,7 +661,7 @@ function HUDController:_buildGameOverFrame()
 		Position = UDim2.new(0, 0, 0.4, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "Level: 1",
-		TextSize = 22,
+		TextSize = if _isMobile then 18 else 22,
 		ZIndex = 61,
 	})
 
@@ -487,7 +671,7 @@ function HUDController:_buildGameOverFrame()
 		Position = UDim2.new(0, 0, 0.45, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "Wave: 1",
-		TextSize = 22,
+		TextSize = if _isMobile then 18 else 22,
 		ZIndex = 61,
 	})
 
@@ -497,29 +681,26 @@ function HUDController:_buildGameOverFrame()
 		Position = UDim2.new(0, 0, 0.52, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "",
-		TextSize = 24,
+		TextSize = if _isMobile then 20 else 24,
 		Font = Enum.Font.GothamBlack,
 		TextColor3 = Color3.fromRGB(200, 160, 255),
 		ZIndex = 61,
 	})
 
-	local playAgainBtn = Instance.new("TextButton")
-	playAgainBtn.Name = "PlayAgainBtn"
-	playAgainBtn.Size = UDim2.new(0, 200, 0, 50)
-	playAgainBtn.Position = UDim2.new(0.5, -100, 0.6, 0)
-	playAgainBtn.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
-	playAgainBtn.BorderSizePixel = 0
-	playAgainBtn.Text = "Continue"
-	playAgainBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-	playAgainBtn.Font = Enum.Font.GothamBlack
-	playAgainBtn.TextSize = 24
-	playAgainBtn.AutoButtonColor = true
-	playAgainBtn.ZIndex = 62
-	playAgainBtn.Parent = _gameOverFrame
+	-- Play Again / Continue button — 48px+ for touch
+	local btnHeight = math.max(50, if _isMobile then 56 else 50)
+	local playAgainBtn = createButton(_gameOverFrame, {
+		Name = "PlayAgainBtn",
+		Size = UDim2.new(0, 220, 0, btnHeight),
+		Position = UDim2.new(0.5, -110, 0.6, 0),
+		BackgroundColor3 = Color3.fromRGB(50, 180, 50),
+		Text = "Continue",
+		Font = Enum.Font.GothamBlack,
+		TextSize = 24,
+		ZIndex = 62,
+	})
 
-	local btnCorner = Instance.new("UICorner")
-	btnCorner.CornerRadius = UDim.new(0, 10)
-	btnCorner.Parent = playAgainBtn
+	addGamepadPrompt(playAgainBtn, "[A]")
 
 	playAgainBtn.MouseButton1Click:Connect(function()
 		_gameOverFrame.Visible = false
@@ -567,6 +748,14 @@ function HUDController:ShowGameOver(data: any)
 	if waveStat then
 		waveStat.Text = `Wave: {data.Wave}`
 	end
+
+	-- Gamepad: select play again button
+	if _hasGamepad or _isConsole then
+		local playAgainBtn = _gameOverFrame:FindFirstChild("PlayAgainBtn") :: TextButton?
+		if playAgainBtn then
+			GuiService.SelectedObject = playAgainBtn
+		end
+	end
 end
 
 -------------------------------------------------
@@ -590,7 +779,7 @@ function HUDController:_buildLobbyFrame()
 		Position = UDim2.new(0, 0, 0.02, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "PREPARE FOR NEXT RUN",
-		TextSize = 32,
+		TextSize = if _isMobile then 24 else 32,
 		Font = Enum.Font.GothamBlack,
 		TextColor3 = Color3.fromRGB(200, 160, 255),
 		ZIndex = 71,
@@ -626,31 +815,41 @@ function HUDController:_showLobby()
 			return
 		end
 
-		-- Souls display
-		local soulsLabel = createLabel(_lobbyFrame, {
-			Name = "LobbySouls",
-			Size = UDim2.new(1, 0, 0, 30),
-			Position = UDim2.new(0, 0, 0.07, 0),
-			TextXAlignment = Enum.TextXAlignment.Center,
-			Text = `Souls: {souls}`,
-			TextSize = 22,
-			TextColor3 = Color3.fromRGB(200, 160, 255),
-			ZIndex = 71,
-		})
+		local totalRuns = lifetimeStats and lifetimeStats.TotalRuns or 0
+		_isFirstRun = totalRuns == 0
 
-		-- RELIC SHOP (left panel)
-		self:_buildRelicShop(relicLevels, souls, soulsLabel)
+		-- Souls display (hide on first run since no souls yet)
+		if not _isFirstRun then
+			createLabel(_lobbyFrame, {
+				Name = "LobbySouls",
+				Size = UDim2.new(1, 0, 0, 30),
+				Position = UDim2.new(0, 0, 0.07, 0),
+				TextXAlignment = Enum.TextXAlignment.Center,
+				Text = `Souls: {souls}`,
+				TextSize = 22,
+				TextColor3 = Color3.fromRGB(200, 160, 255),
+				ZIndex = 71,
+			})
+		end
 
-		-- CHARACTER SELECT (center panel)
+		-- RELIC SHOP (left panel) — skip on first run
+		if not _isFirstRun then
+			self:_buildRelicShop(relicLevels, souls)
+		end
+
+		-- CHARACTER SELECT (center panel, or full-width on mobile first run)
 		self:_buildCharacterSelect(selectedChar, unlockedWeapons)
 
-		-- STATS PANEL (right panel)
-		self:_buildStatsPanel(lifetimeStats, unlockedWeapons)
+		-- STATS PANEL (right panel) — skip on first run
+		if not _isFirstRun then
+			self:_buildStatsPanel(lifetimeStats, unlockedWeapons)
+		end
 
-		-- READY UP button (bottom center)
+		-- READY UP button (bottom center) — 48px+ for touch
+		local btnHeight = math.max(50, if _isMobile then 56 else 50)
 		local readyBtn = createButton(_lobbyFrame, {
 			Name = "ReadyBtn",
-			Size = UDim2.new(0, 220, 0, 50),
+			Size = UDim2.new(0, 220, 0, btnHeight),
 			Position = UDim2.new(0.5, -110, 0.9, 0),
 			BackgroundColor3 = Color3.fromRGB(50, 200, 50),
 			Text = "READY UP",
@@ -658,6 +857,8 @@ function HUDController:_showLobby()
 			TextSize = 24,
 			ZIndex = 72,
 		})
+
+		addGamepadPrompt(readyBtn, "[A]")
 
 		readyBtn.MouseButton1Click:Connect(function()
 			readyBtn.Text = "READY!"
@@ -667,10 +868,15 @@ function HUDController:_showLobby()
 				warn("ReadyUp failed:", err)
 			end)
 		end)
+
+		-- Gamepad: select ready button
+		if _hasGamepad or _isConsole then
+			GuiService.SelectedObject = readyBtn
+		end
 	end)
 end
 
-function HUDController:_buildRelicShop(relicLevels: { [string]: number }, souls: number, _soulsLabel: TextLabel)
+function HUDController:_buildRelicShop(relicLevels: { [string]: number }, souls: number)
 	local shopFrame = Instance.new("ScrollingFrame")
 	shopFrame.Name = "RelicShop"
 	shopFrame.Size = UDim2.new(0.3, -20, 0.7, 0)
@@ -737,9 +943,13 @@ function HUDController:_buildRelicShop(relicLevels: { [string]: number }, souls:
 		})
 
 		if not isMaxed and cost then
+			-- Relic buy button — min 48px wide for touch targets
+			local buyBtnWidth = if _isMobile then 100 else 80
+			local buyBtnHeight = if _isMobile then 32 else 24
+
 			local buyBtn = createButton(entry, {
-				Size = UDim2.new(0, 80, 0, 24),
-				Position = UDim2.new(1, -90, 0, 36),
+				Size = UDim2.new(0, buyBtnWidth, 0, buyBtnHeight),
+				Position = UDim2.new(1, -(buyBtnWidth + 10), 0, 36),
 				Text = `{cost} Souls`,
 				TextSize = 12,
 				BackgroundColor3 = if currentSouls >= cost
@@ -770,10 +980,23 @@ function HUDController:_buildRelicShop(relicLevels: { [string]: number }, souls:
 end
 
 function HUDController:_buildCharacterSelect(selectedChar: string, _unlockedWeapons: { [string]: boolean })
+	-- First run + mobile: center and wider; first run + PC: centered; normal: standard position
+	local charFrameSize, charFramePos
+	if _isFirstRun then
+		charFrameSize = UDim2.new(0.8, 0, 0.65, 0)
+		charFramePos = UDim2.new(0.1, 0, 0.12, 0)
+	elseif _isMobile then
+		charFrameSize = UDim2.new(0.55, -20, 0.5, 0)
+		charFramePos = UDim2.new(0.3, 10, 0.12, 0)
+	else
+		charFrameSize = UDim2.new(0.35, -20, 0.5, 0)
+		charFramePos = UDim2.new(0.3, 10, 0.12, 0)
+	end
+
 	local charFrame = Instance.new("Frame")
 	charFrame.Name = "CharacterSelect"
-	charFrame.Size = UDim2.new(0.35, -20, 0.5, 0)
-	charFrame.Position = UDim2.new(0.3, 10, 0.12, 0)
+	charFrame.Size = charFrameSize
+	charFrame.Position = charFramePos
 	charFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
 	charFrame.BackgroundTransparency = 0.3
 	charFrame.BorderSizePixel = 0
@@ -788,91 +1011,168 @@ function HUDController:_buildCharacterSelect(selectedChar: string, _unlockedWeap
 		Name = "CharTitle",
 		Size = UDim2.new(1, 0, 0, 30),
 		Position = UDim2.new(0, 10, 0, 5),
-		Text = "Character Select",
+		Text = if _isFirstRun then "Choose Your Character" else "Character Select",
 		TextSize = 20,
 		Font = Enum.Font.GothamBlack,
 		ZIndex = 72,
 	})
 
-	local cardWidth = 120
-	local gap = 10
 	local chars = CharacterData.Characters
-	local totalWidth = #chars * cardWidth + (#chars - 1) * gap
-	local startX = (charFrame.AbsoluteSize.X - totalWidth) / 2
-	if startX < 10 then
-		startX = 10
-	end
 
-	for i, charDef in chars do
-		local isSelected = charDef.Id == selectedChar
-		local xPos = startX + (i - 1) * (cardWidth + gap)
+	-- Mobile: full-width stacked cards; PC: side-by-side
+	if _isMobile then
+		local cardHeight = 60
+		local gap = 6
+		for i, charDef in chars do
+			local isSelected = charDef.Id == selectedChar
+			local yPos = 40 + (i - 1) * (cardHeight + gap)
 
-		local card = Instance.new("TextButton")
-		card.Name = charDef.Id
-		card.Size = UDim2.new(0, cardWidth, 0, 160)
-		card.Position = UDim2.new(0, xPos, 0, 40)
-		card.BackgroundColor3 = if isSelected then Color3.fromRGB(50, 50, 80) else Color3.fromRGB(30, 30, 45)
-		card.BorderSizePixel = 0
-		card.Text = ""
-		card.AutoButtonColor = true
-		card.ZIndex = 72
-		card.Parent = charFrame
+			local card = Instance.new("TextButton")
+			card.Name = charDef.Id
+			card.Size = UDim2.new(1, -20, 0, cardHeight)
+			card.Position = UDim2.new(0, 10, 0, yPos)
+			card.BackgroundColor3 = if isSelected then Color3.fromRGB(50, 50, 80) else Color3.fromRGB(30, 30, 45)
+			card.BorderSizePixel = 0
+			card.Text = ""
+			card.AutoButtonColor = true
+			card.Selectable = true
+			card.ZIndex = 72
+			card.Parent = charFrame
 
-		local cardCorner = Instance.new("UICorner")
-		cardCorner.CornerRadius = UDim.new(0, 8)
-		cardCorner.Parent = card
+			local cardCorner = Instance.new("UICorner")
+			cardCorner.CornerRadius = UDim.new(0, 8)
+			cardCorner.Parent = card
 
-		if isSelected then
-			local stroke = Instance.new("UIStroke")
-			stroke.Color = Color3.fromRGB(200, 160, 255)
-			stroke.Thickness = 2
-			stroke.Parent = card
+			if isSelected then
+				local stroke = Instance.new("UIStroke")
+				stroke.Color = Color3.fromRGB(200, 160, 255)
+				stroke.Thickness = 2
+				stroke.Parent = card
+			end
+
+			-- Color swatch
+			local swatch = Instance.new("Frame")
+			swatch.Size = UDim2.new(0, 32, 0, 32)
+			swatch.Position = UDim2.new(0, 8, 0.5, -16)
+			swatch.BackgroundColor3 = charDef.Color
+			swatch.BorderSizePixel = 0
+			swatch.ZIndex = 73
+			swatch.Parent = card
+
+			local swatchCorner = Instance.new("UICorner")
+			swatchCorner.CornerRadius = UDim.new(0, 6)
+			swatchCorner.Parent = swatch
+
+			createLabel(card, {
+				Size = UDim2.new(0.5, -48, 0, 20),
+				Position = UDim2.new(0, 48, 0, 6),
+				Text = charDef.Name,
+				TextSize = 14,
+				Font = Enum.Font.GothamBlack,
+				ZIndex = 73,
+			})
+
+			createLabel(card, {
+				Size = UDim2.new(0.5, -48, 0, 16),
+				Position = UDim2.new(0, 48, 0, 28),
+				Text = charDef.Description,
+				TextSize = 10,
+				TextWrapped = true,
+				TextColor3 = Color3.fromRGB(180, 180, 200),
+				ZIndex = 73,
+			})
+
+			card.MouseButton1Click:Connect(function()
+				local StatsService = Knit.GetService("StatsService")
+				StatsService:SelectCharacter(charDef.Id):catch(function(err)
+					warn("Select character failed:", err)
+				end)
+				task.delay(0.2, function()
+					self:_showLobby()
+				end)
+			end)
+		end
+	else
+		-- PC/Console: side-by-side cards
+		local cardWidth = if _isFirstRun then 150 else 120
+		local gap = 10
+		local totalWidth = #chars * cardWidth + (#chars - 1) * gap
+		local startX = math.max(10, (charFrame.AbsoluteSize.X - totalWidth) / 2)
+		if charFrame.AbsoluteSize.X < 1 then
+			startX = 10
 		end
 
-		-- Color swatch
-		local swatch = Instance.new("Frame")
-		swatch.Size = UDim2.new(0, 40, 0, 40)
-		swatch.Position = UDim2.new(0.5, -20, 0, 10)
-		swatch.BackgroundColor3 = charDef.Color
-		swatch.BorderSizePixel = 0
-		swatch.ZIndex = 73
-		swatch.Parent = card
+		for i, charDef in chars do
+			local isSelected = charDef.Id == selectedChar
+			local xPos = startX + (i - 1) * (cardWidth + gap)
 
-		local swatchCorner = Instance.new("UICorner")
-		swatchCorner.CornerRadius = UDim.new(0, 6)
-		swatchCorner.Parent = swatch
+			local card = Instance.new("TextButton")
+			card.Name = charDef.Id
+			card.Size = UDim2.new(0, cardWidth, 0, 160)
+			card.Position = UDim2.new(0, xPos, 0, 40)
+			card.BackgroundColor3 = if isSelected then Color3.fromRGB(50, 50, 80) else Color3.fromRGB(30, 30, 45)
+			card.BorderSizePixel = 0
+			card.Text = ""
+			card.AutoButtonColor = true
+			card.Selectable = true
+			card.ZIndex = 72
+			card.Parent = charFrame
 
-		createLabel(card, {
-			Size = UDim2.new(1, -8, 0, 20),
-			Position = UDim2.new(0, 4, 0, 55),
-			TextXAlignment = Enum.TextXAlignment.Center,
-			Text = charDef.Name,
-			TextSize = 14,
-			Font = Enum.Font.GothamBlack,
-			ZIndex = 73,
-		})
+			local cardCorner = Instance.new("UICorner")
+			cardCorner.CornerRadius = UDim.new(0, 8)
+			cardCorner.Parent = card
 
-		createLabel(card, {
-			Size = UDim2.new(1, -8, 0, 60),
-			Position = UDim2.new(0, 4, 0, 78),
-			TextXAlignment = Enum.TextXAlignment.Center,
-			Text = charDef.Description,
-			TextSize = 10,
-			TextWrapped = true,
-			TextColor3 = Color3.fromRGB(180, 180, 200),
-			ZIndex = 73,
-		})
+			if isSelected then
+				local stroke = Instance.new("UIStroke")
+				stroke.Color = Color3.fromRGB(200, 160, 255)
+				stroke.Thickness = 2
+				stroke.Parent = card
+			end
 
-		card.MouseButton1Click:Connect(function()
-			local StatsService = Knit.GetService("StatsService")
-			StatsService:SelectCharacter(charDef.Id):catch(function(err)
-				warn("Select character failed:", err)
+			-- Color swatch
+			local swatch = Instance.new("Frame")
+			swatch.Size = UDim2.new(0, 40, 0, 40)
+			swatch.Position = UDim2.new(0.5, -20, 0, 10)
+			swatch.BackgroundColor3 = charDef.Color
+			swatch.BorderSizePixel = 0
+			swatch.ZIndex = 73
+			swatch.Parent = card
+
+			local swatchCorner = Instance.new("UICorner")
+			swatchCorner.CornerRadius = UDim.new(0, 6)
+			swatchCorner.Parent = swatch
+
+			createLabel(card, {
+				Size = UDim2.new(1, -8, 0, 20),
+				Position = UDim2.new(0, 4, 0, 55),
+				TextXAlignment = Enum.TextXAlignment.Center,
+				Text = charDef.Name,
+				TextSize = 14,
+				Font = Enum.Font.GothamBlack,
+				ZIndex = 73,
+			})
+
+			createLabel(card, {
+				Size = UDim2.new(1, -8, 0, 60),
+				Position = UDim2.new(0, 4, 0, 78),
+				TextXAlignment = Enum.TextXAlignment.Center,
+				Text = charDef.Description,
+				TextSize = 10,
+				TextWrapped = true,
+				TextColor3 = Color3.fromRGB(180, 180, 200),
+				ZIndex = 73,
+			})
+
+			card.MouseButton1Click:Connect(function()
+				local StatsService = Knit.GetService("StatsService")
+				StatsService:SelectCharacter(charDef.Id):catch(function(err)
+					warn("Select character failed:", err)
+				end)
+				task.delay(0.2, function()
+					self:_showLobby()
+				end)
 			end)
-			-- Refresh lobby to show selection
-			task.delay(0.2, function()
-				self:_showLobby()
-			end)
-		end)
+		end
 	end
 end
 
@@ -957,8 +1257,8 @@ end
 function HUDController:_buildBuffFrame()
 	_buffFrame = Instance.new("Frame")
 	_buffFrame.Name = "BuffFrame"
-	_buffFrame.Size = UDim2.new(0, 300, 0, 32)
-	_buffFrame.Position = UDim2.new(0, 20, 1, -140)
+	_buffFrame.Size = if _isMobile then UDim2.new(0.5, 0, 0, 28) else UDim2.new(0, 300, 0, 32)
+	_buffFrame.Position = if _isMobile then UDim2.new(0.02, 0, 1, -115) else UDim2.new(0, 20, 1, -140)
 	_buffFrame.BackgroundTransparency = 1
 	_buffFrame.BorderSizePixel = 0
 	_buffFrame.Parent = _screenGui
@@ -985,9 +1285,12 @@ function HUDController:ShowBuff(buffType: string, duration: number)
 		_activeBuffIcons[buffType] = nil
 	end
 
+	local iconWidth = if _isMobile then 70 else 90
+	local iconHeight = if _isMobile then 24 else 28
+
 	local icon = Instance.new("Frame")
 	icon.Name = buffType
-	icon.Size = UDim2.new(0, 90, 0, 28)
+	icon.Size = UDim2.new(0, iconWidth, 0, iconHeight)
 	icon.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
 	icon.BackgroundTransparency = 0.3
 	icon.BorderSizePixel = 0
@@ -1016,7 +1319,7 @@ function HUDController:ShowBuff(buffType: string, duration: number)
 	nameLabel.Text = puCfg.Name
 	nameLabel.TextColor3 = puCfg.Color
 	nameLabel.Font = Enum.Font.GothamBold
-	nameLabel.TextSize = 11
+	nameLabel.TextSize = ts(if _isMobile then 9 else 11)
 	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
 	nameLabel.Parent = icon
 
@@ -1028,7 +1331,7 @@ function HUDController:ShowBuff(buffType: string, duration: number)
 	timerLabel.Text = tostring(math.ceil(duration))
 	timerLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 	timerLabel.Font = Enum.Font.GothamBold
-	timerLabel.TextSize = 12
+	timerLabel.TextSize = ts(12)
 	timerLabel.TextXAlignment = Enum.TextXAlignment.Right
 	timerLabel.Parent = icon
 
@@ -1066,9 +1369,11 @@ end
 -------------------------------------------------
 
 function HUDController:_buildBossBar()
+	local barHeight = if _isMobile then 24 else 32
+
 	_bossBarFrame = Instance.new("Frame")
 	_bossBarFrame.Name = "BossBar"
-	_bossBarFrame.Size = UDim2.new(0.6, 0, 0, 32)
+	_bossBarFrame.Size = UDim2.new(0.6, 0, 0, barHeight)
 	_bossBarFrame.Position = UDim2.new(0.2, 0, 0, 75)
 	_bossBarFrame.BackgroundColor3 = Color3.fromRGB(20, 10, 30)
 	_bossBarFrame.BorderSizePixel = 0
@@ -1104,7 +1409,7 @@ function HUDController:_buildBossBar()
 		Position = UDim2.new(0, 0, 0, -22),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "THE ONSLAUGHT",
-		TextSize = 18,
+		TextSize = if _isMobile then 14 else 18,
 		Font = Enum.Font.GothamBlack,
 		TextColor3 = Color3.fromRGB(200, 100, 255),
 		ZIndex = 81,
@@ -1144,11 +1449,11 @@ end
 function HUDController:ShowWeaponUnlocked(weaponName: string)
 	local notif = createLabel(_screenGui, {
 		Name = "UnlockNotif",
-		Size = UDim2.new(0, 400, 0, 50),
-		Position = UDim2.new(0.5, -200, 0.15, 0),
+		Size = UDim2.new(0.6, 0, 0, 50),
+		Position = UDim2.new(0.2, 0, 0.15, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = `NEW WEAPON UNLOCKED: {weaponName}!`,
-		TextSize = 24,
+		TextSize = if _isMobile then 18 else 24,
 		Font = Enum.Font.GothamBlack,
 		TextColor3 = Color3.fromRGB(255, 220, 50),
 		TextStrokeTransparency = 0.3,
@@ -1158,6 +1463,109 @@ function HUDController:ShowWeaponUnlocked(weaponName: string)
 	task.delay(3, function()
 		if notif and notif.Parent then
 			notif:Destroy()
+		end
+	end)
+end
+
+-------------------------------------------------
+-- FIRST-TIME TUTORIAL OVERLAY
+-------------------------------------------------
+
+function HUDController:_showTutorialOverlay()
+	local overlay = Instance.new("Frame")
+	overlay.Name = "TutorialOverlay"
+	overlay.Size = UDim2.new(1, 0, 1, 0)
+	overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	overlay.BackgroundTransparency = 0.5
+	overlay.BorderSizePixel = 0
+	overlay.ZIndex = 95
+	overlay.Parent = _screenGui
+
+	local textFrame = Instance.new("Frame")
+	textFrame.Name = "TextFrame"
+	textFrame.Size = UDim2.new(0.7, 0, 0, if _isMobile then 100 else 120)
+	textFrame.Position = UDim2.new(0.15, 0, 0.35, 0)
+	textFrame.BackgroundColor3 = Color3.fromRGB(15, 10, 25)
+	textFrame.BackgroundTransparency = 0.2
+	textFrame.BorderSizePixel = 0
+	textFrame.ZIndex = 96
+	textFrame.Parent = overlay
+
+	local tfCorner = Instance.new("UICorner")
+	tfCorner.CornerRadius = UDim.new(0, 12)
+	tfCorner.Parent = textFrame
+
+	createLabel(textFrame, {
+		Size = UDim2.new(1, -24, 0, 30),
+		Position = UDim2.new(0, 12, 0, 10),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "HOW TO PLAY",
+		TextSize = if _isMobile then 20 else 26,
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = Color3.fromRGB(255, 220, 50),
+		ZIndex = 97,
+	})
+
+	createLabel(textFrame, {
+		Size = UDim2.new(1, -24, 0, 50),
+		Position = UDim2.new(0, 12, 0, 45),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "Move to survive. Weapons fire automatically.\nCollect green gems to level up.",
+		TextSize = if _isMobile then 14 else 18,
+		Font = Enum.Font.GothamBold,
+		TextWrapped = true,
+		ZIndex = 97,
+	})
+
+	createLabel(overlay, {
+		Size = UDim2.new(1, 0, 0, 24),
+		Position = UDim2.new(0, 0, 0.55, 0),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = if _isMobile then "Tap to dismiss" else "Click or press any key to dismiss",
+		TextSize = 14,
+		TextColor3 = Color3.fromRGB(160, 160, 180),
+		ZIndex = 97,
+	})
+
+	-- Auto-dismiss after 5 seconds
+	local dismissed = false
+	local function dismiss()
+		if dismissed then
+			return
+		end
+		dismissed = true
+		TweenService:Create(overlay, TweenInfo.new(0.3), { BackgroundTransparency = 1 }):Play()
+		TweenService:Create(textFrame, TweenInfo.new(0.3), { BackgroundTransparency = 1 }):Play()
+		task.delay(0.3, function()
+			if overlay.Parent then
+				overlay:Destroy()
+			end
+		end)
+	end
+
+	task.delay(5, dismiss)
+
+	-- Dismiss on tap/click
+	local btn = Instance.new("TextButton")
+	btn.Name = "DismissBtn"
+	btn.Size = UDim2.new(1, 0, 1, 0)
+	btn.BackgroundTransparency = 1
+	btn.Text = ""
+	btn.ZIndex = 98
+	btn.Parent = overlay
+	btn.MouseButton1Click:Connect(dismiss)
+
+	-- Dismiss on any key
+	local conn: RBXScriptConnection?
+	conn = UserInputService.InputBegan:Connect(function(input, processed)
+		if processed then
+			return
+		end
+		if input.UserInputType == Enum.UserInputType.Keyboard or input.UserInputType == Enum.UserInputType.Gamepad1 then
+			dismiss()
+			if conn then
+				conn:Disconnect()
+			end
 		end
 	end)
 end
@@ -1212,6 +1620,11 @@ function HUDController:ShowStateMessage(text: string, duration: number?)
 end
 
 function HUDController:KnitInit()
+	_isMobile = PlatformUtil.IsMobile()
+	_isConsole = PlatformUtil.IsConsole()
+	_hasGamepad = PlatformUtil.HasGamepad()
+	_textScale = PlatformUtil.TextScale()
+
 	self:_buildUI()
 end
 
@@ -1305,6 +1718,21 @@ function HUDController:KnitStart()
 		end
 	end)
 
+	-- First-run tutorial
+	GameService.FirstRunTutorial:Connect(function()
+		_isFirstRun = true
+		-- Show tutorial overlay when game starts (after lobby)
+		local tutorialConn: RBXScriptConnection?
+		tutorialConn = GameService.GameStateChanged:Connect(function(state: string)
+			if state == "Wave" then
+				self:_showTutorialOverlay()
+				if tutorialConn then
+					tutorialConn:Disconnect()
+				end
+			end
+		end)
+	end)
+
 	-- Souls earned notification
 	StatsService.SoulsEarned:Connect(function(earned: number, total: number)
 		_soulsText.Text = `Souls: {total}`
@@ -1347,6 +1775,51 @@ function HUDController:KnitStart()
 	-- Update buff timers
 	RunService.RenderStepped:Connect(function(_dt)
 		self:_updateBuffTimers()
+	end)
+
+	-- Gamepad input for card/lobby navigation
+	if _hasGamepad or _isConsole then
+		self:_setupGamepadInput()
+	end
+
+	-- Track gamepad connection changes
+	UserInputService.GamepadConnected:Connect(function(_gamepadNum)
+		_hasGamepad = true
+	end)
+end
+
+-------------------------------------------------
+-- GAMEPAD INPUT
+-------------------------------------------------
+
+function HUDController:_setupGamepadInput()
+	UserInputService.InputBegan:Connect(function(input, processed)
+		if processed then
+			return
+		end
+
+		-- Card selection with D-pad + A button
+		if _cardFrame.Visible and #_gamepadCards > 0 then
+			if input.KeyCode == Enum.KeyCode.DPadRight or input.KeyCode == Enum.KeyCode.Thumbstick1 then
+				_gamepadSelectedIndex = math.min(#_gamepadCards, _gamepadSelectedIndex + 1)
+				self:_highlightCard(_gamepadSelectedIndex)
+				GuiService.SelectedObject = _gamepadCards[_gamepadSelectedIndex]
+			elseif input.KeyCode == Enum.KeyCode.DPadLeft then
+				_gamepadSelectedIndex = math.max(1, _gamepadSelectedIndex - 1)
+				self:_highlightCard(_gamepadSelectedIndex)
+				GuiService.SelectedObject = _gamepadCards[_gamepadSelectedIndex]
+			elseif input.KeyCode == Enum.KeyCode.ButtonA then
+				local selected = _gamepadCards[_gamepadSelectedIndex]
+				if selected then
+					-- Simulate click
+					local clickSignal = selected.MouseButton1Click
+					if clickSignal then
+						-- Fire through Activated which is the gamepad-compatible event
+						selected.Activated:Fire()
+					end
+				end
+			end
+		end
 	end)
 end
 

@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local PlatformUtil = require(ReplicatedStorage.Shared.PlatformUtil)
 
 local Player = Players.LocalPlayer
 
@@ -22,6 +23,7 @@ local VoidArenaController = Knit.CreateController({
 local _currentPhase = 1
 local _gameElapsed = 0
 local _lastFlickerTime = 0
+local _veinFrameSkip = 0
 
 function VoidArenaController:_getPhase(): number
 	local cfg = GameConfig.Arena
@@ -260,6 +262,8 @@ function VoidArenaController:KnitStart()
 		end
 	end)
 
+	local isMobile = PlatformUtil.IsMobile()
+
 	RunService.RenderStepped:Connect(function(_dt)
 		local now = tick()
 
@@ -267,8 +271,11 @@ function VoidArenaController:KnitStart()
 		local phase = self:_getPhase()
 		self:_updatePhase(phase)
 
-		-- Update vein pulsing
-		self:_updateVeins(now)
+		-- Update vein pulsing (skip every other frame on mobile)
+		_veinFrameSkip += 1
+		if not isMobile or _veinFrameSkip % 2 == 0 then
+			self:_updateVeins(now)
+		end
 
 		-- Dark flicker
 		self:_tryDarkFlicker(now)

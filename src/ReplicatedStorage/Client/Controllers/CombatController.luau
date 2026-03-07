@@ -10,6 +10,7 @@ local TweenService = game:GetService("TweenService")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local PlatformUtil = require(ReplicatedStorage.Shared.PlatformUtil)
 
 local Player = Players.LocalPlayer
 
@@ -33,6 +34,15 @@ function CombatController:_setupCamera()
 
 	camera.CameraType = Enum.CameraType.Scriptable
 	camera.FieldOfView = camCfg.FieldOfView
+
+	-- Mobile: zoom out 20% more for better visibility on small screens
+	local distanceMult = 1.0
+	if PlatformUtil.IsMobile() then
+		distanceMult = GameConfig.Mobile.CameraDistanceMult
+	end
+	local cameraDistance = camCfg.Distance * distanceMult
+
+	local _smoothPos: Vector3? = nil
 
 	RunService.RenderStepped:Connect(function(dt)
 		local char = Player.Character
@@ -58,9 +68,18 @@ function CombatController:_setupCamera()
 		end
 
 		local angleRad = math.rad(camCfg.Angle)
-		local offset = Vector3.new(0, math.sin(angleRad) * camCfg.Distance, math.cos(angleRad) * camCfg.Distance)
+		local offset = Vector3.new(0, math.sin(angleRad) * cameraDistance, math.cos(angleRad) * cameraDistance)
 		local targetPos = root.Position
-		camera.CFrame = CFrame.lookAt(targetPos + offset + _cameraShakeOffset, targetPos)
+
+		-- Smooth camera follow (lerp) for lower framerates
+		if _smoothPos then
+			local lerpSpeed = math.min(1, dt * 12)
+			_smoothPos = _smoothPos:Lerp(targetPos, lerpSpeed)
+		else
+			_smoothPos = targetPos
+		end
+
+		camera.CFrame = CFrame.lookAt(_smoothPos + offset + _cameraShakeOffset, _smoothPos)
 	end)
 end
 

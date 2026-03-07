@@ -9,6 +9,8 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
+local PlatformUtil = require(ReplicatedStorage.Shared.PlatformUtil)
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
 
 local EnemyAnimController = Knit.CreateController({
 	Name = "EnemyAnimController",
@@ -204,6 +206,9 @@ end
 function EnemyAnimController:KnitInit() end
 
 function EnemyAnimController:KnitStart()
+	local isMobile = PlatformUtil.IsMobile()
+	local mobileFrameSkip = GameConfig.Mobile.AnimFrameSkip
+
 	RunService.RenderStepped:Connect(function(_dt)
 		_enemyFolder = workspace:FindFirstChild("Enemies") :: Folder?
 		if not _enemyFolder then
@@ -215,6 +220,12 @@ function EnemyAnimController:KnitStart()
 
 		-- Performance: skip frames when lots of enemies
 		_frameSkip += 1
+
+		-- Mobile: always skip every other frame
+		if isMobile and _frameSkip % mobileFrameSkip ~= 0 then
+			return
+		end
+
 		if enemyCount > 100 and _frameSkip % 2 ~= 0 then
 			return
 		end
