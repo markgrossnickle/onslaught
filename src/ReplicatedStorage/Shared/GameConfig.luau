@@ -41,22 +41,27 @@ GameConfig.Scaling = {
 	BossHealthPerPlayer = 0.5, -- +50% boss HP per extra player
 }
 
--- Enemies
+-- Enemies (alien bug + shadow/void aesthetic)
 GameConfig.Enemies = {
 	SpawnDistance = 90,
 	SpawnHeight = 3,
 	MaxConcurrent = 200,
 
 	Types = {
-		Grunt = {
+		Drone = {
 			Health = 60,
 			Speed = 12,
 			Damage = 10,
 			AttackRange = 5,
 			AttackCooldown = 1.0,
-			Color = Color3.fromRGB(200, 50, 50),
-			Size = Vector3.new(4, 5, 3),
+			Size = Vector3.new(4, 3, 4), -- sphere-ish jellyfish
 			XPValue = 10,
+			-- Visual
+			BodyColor = Color3.fromRGB(25, 15, 40),
+			CoreColor = Color3.fromRGB(220, 60, 220), -- magenta core
+			EyeColor = Color3.fromRGB(80, 220, 255), -- cyan
+			Material = Enum.Material.Glass,
+			TendrilCount = 5,
 		},
 		Brute = {
 			Health = 150,
@@ -64,9 +69,13 @@ GameConfig.Enemies = {
 			Damage = 25,
 			AttackRange = 6,
 			AttackCooldown = 1.5,
-			Color = Color3.fromRGB(150, 30, 30),
-			Size = Vector3.new(6, 7, 5),
+			Size = Vector3.new(6, 5, 5),
 			XPValue = 25,
+			BodyColor = Color3.fromRGB(20, 10, 35),
+			CoreColor = Color3.fromRGB(180, 40, 180),
+			EyeColor = Color3.fromRGB(255, 60, 60),
+			Material = Enum.Material.Glass,
+			TendrilCount = 6,
 		},
 		Dasher = {
 			Health = 40,
@@ -74,29 +83,43 @@ GameConfig.Enemies = {
 			Damage = 15,
 			AttackRange = 4,
 			AttackCooldown = 0.8,
-			Color = Color3.fromRGB(220, 100, 30),
-			Size = Vector3.new(3, 4, 3),
+			Size = Vector3.new(3, 2.5, 3),
 			XPValue = 15,
+			BodyColor = Color3.fromRGB(30, 10, 45),
+			CoreColor = Color3.fromRGB(255, 80, 255),
+			EyeColor = Color3.fromRGB(255, 120, 0),
+			Material = Enum.Material.Glass,
+			TendrilCount = 4,
 		},
-		Runner = {
+		Skitter = {
 			Health = 25,
 			Speed = 26,
 			Damage = 8,
 			AttackRange = 4,
 			AttackCooldown = 0.6,
-			Color = Color3.fromRGB(255, 60, 60),
-			Size = Vector3.new(2, 3, 2),
+			Size = Vector3.new(3, 2, 4), -- oval spider body
 			XPValue = 8,
+			BodyColor = Color3.fromRGB(15, 15, 50),
+			CoreColor = Color3.fromRGB(60, 255, 80), -- green core
+			EyeColor = Color3.fromRGB(255, 40, 40), -- red eyes
+			Material = Enum.Material.SmoothPlastic,
+			LegCount = 6,
+			EyeCount = 4,
 		},
-		Tank = {
+		Behemoth = {
 			Health = 400,
 			Speed = 6,
 			Damage = 40,
 			AttackRange = 7,
 			AttackCooldown = 2.0,
-			Color = Color3.fromRGB(120, 50, 180),
-			Size = Vector3.new(8, 9, 7),
+			Size = Vector3.new(8, 6, 9), -- big beetle
 			XPValue = 50,
+			BodyColor = Color3.fromRGB(20, 10, 30),
+			CoreColor = Color3.fromRGB(140, 40, 220), -- purple core
+			EyeColor = Color3.fromRGB(255, 160, 30), -- orange eyes
+			Material = Enum.Material.SmoothPlastic,
+			LegCount = 4,
+			ShellParts = 3,
 		},
 		Boss = {
 			Health = 2000,
@@ -104,9 +127,13 @@ GameConfig.Enemies = {
 			Damage = 50,
 			AttackRange = 8,
 			AttackCooldown = 1.5,
-			Color = Color3.fromRGB(255, 180, 30),
-			Size = Vector3.new(12, 14, 10),
+			Size = Vector3.new(10, 8, 10),
 			XPValue = 200,
+			BodyColor = Color3.fromRGB(15, 5, 25),
+			CoreColor = Color3.fromRGB(255, 80, 255),
+			EyeColor = Color3.fromRGB(255, 40, 40),
+			Material = Enum.Material.Glass,
+			TendrilCount = 8,
 		},
 		MegaBoss = {
 			Health = 8000,
@@ -114,16 +141,74 @@ GameConfig.Enemies = {
 			Damage = 60,
 			AttackRange = 10,
 			AttackCooldown = 1.2,
-			Color = Color3.fromRGB(255, 200, 0),
-			Size = Vector3.new(16, 18, 14),
+			Size = Vector3.new(16, 14, 16),
 			XPValue = 500,
+			BodyColor = Color3.fromRGB(10, 5, 20),
+			CoreColor = Color3.fromRGB(255, 255, 255), -- white/magenta pulse
+			EyeColor = Color3.fromRGB(255, 30, 30),
+			Material = Enum.Material.Glass,
+			TendrilCount = 10,
+			ShellPlates = 6,
+			-- Boss attacks
+			VoidBoltInterval = 3.0,
+			VoidBoltSpeed = 40,
+			VoidBoltDamage = 25,
+			TendrilSlamInterval = 8.0,
+			TendrilSlamRadius = 20,
+			TendrilSlamDamage = 35,
+			TendrilSlamTelegraph = 0.5,
+			SpawnMinionsInterval = 15.0,
+			SpawnMinionsCount = 4,
+			VoidPullInterval = 12.0,
+			VoidPullDuration = 3.0,
+			VoidPullSpeed = 10,
+			EnrageThreshold = 0.3, -- 30% HP
+		},
+		Shade = {
+			Health = 35,
+			Speed = 18,
+			Damage = 15,
+			AttackRange = 5,
+			AttackCooldown = 4.0, -- dive interval
+			Size = Vector3.new(2, 1.5, 1.5),
+			XPValue = 15,
+			BodyColor = Color3.fromRGB(40, 20, 60),
+			CoreColor = Color3.fromRGB(255, 40, 40),
+			EyeColor = Color3.fromRGB(255, 40, 40),
+			Material = Enum.Material.Glass,
+			HoverHeight = 9,
+			DiveSpeedMult = 2.0,
+			CircleDistance = 17, -- preferred distance from player
+			FlockSize = 3, -- spawns in groups
+		},
+		Worm = {
+			Health = 30, -- per segment
+			Speed = 14,
+			Damage = 12,
+			AttackRange = 5,
+			AttackCooldown = 0.8,
+			Size = Vector3.new(3, 3, 3), -- per segment
+			XPValue = 5, -- per segment, +15 for head
+			HeadXPBonus = 15,
+			BodyColor = Color3.fromRGB(20, 10, 35),
+			CoreColor = Color3.fromRGB(180, 60, 220),
+			EyeColor = Color3.fromRGB(255, 40, 40),
+			Material = Enum.Material.Glass,
+			SegmentCount = 6,
+			SegmentSpacing = 3.5,
+			FragmentSpeedMult = 1.8, -- 1-segment worms charge fast
+			IntroTime = 180, -- appears at 3 min
+			MaxPerWave = 2,
+			IntroWave = 8,
 		},
 	},
 
 	-- Time-based introduction (seconds of game time)
 	IntroTimes = {
-		Runner = 60,
-		Tank = 120,
+		Skitter = 60,
+		Shade = 120,
+		Behemoth = 120,
+		Worm = 180,
 	},
 	BossInterval = 60, -- spawn a boss every N seconds
 	BossStartTime = 120, -- first boss at this time
@@ -138,6 +223,7 @@ GameConfig.Waves = {
 
 	BruteIntroWave = 3,
 	DasherIntroWave = 5,
+	WormIntroWave = 8,
 
 	HealthScaling = 0.08,
 	DamageScaling = 0.05,
@@ -331,6 +417,8 @@ GameConfig.VFX = {
 	DeathParticleCount = 15,
 	DamageNumberLifetime = 1.0,
 	DamageNumberRiseSpeed = 40,
+	VoidDeathColor1 = Color3.fromRGB(120, 40, 180), -- purple
+	VoidDeathColor2 = Color3.fromRGB(20, 10, 30), -- dark void
 }
 
 return table.freeze(GameConfig)

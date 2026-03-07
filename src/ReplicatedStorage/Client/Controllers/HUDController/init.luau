@@ -30,6 +30,9 @@ local _weaponListFrame: Frame = nil :: any
 local _gameOverFrame: Frame = nil :: any
 local _soulsText: TextLabel = nil :: any
 local _lobbyFrame: Frame = nil :: any
+local _bossBarFrame: Frame = nil :: any
+local _bossBarFill: Frame = nil :: any
+local _bossBarTitle: TextLabel = nil :: any
 
 local function createLabel(parent: Instance, props: { [string]: any }): TextLabel
 	local label = Instance.new("TextLabel")
@@ -218,6 +221,9 @@ function HUDController:_buildUI()
 
 	-- Lobby frame (hidden by default)
 	self:_buildLobbyFrame()
+
+	-- Boss health bar (hidden by default)
+	self:_buildBossBar()
 end
 
 -------------------------------------------------
@@ -940,6 +946,82 @@ function HUDController:_buildStatsPanel(lifetimeStats: { [string]: any }, unlock
 end
 
 -------------------------------------------------
+-- BOSS HEALTH BAR
+-------------------------------------------------
+
+function HUDController:_buildBossBar()
+	_bossBarFrame = Instance.new("Frame")
+	_bossBarFrame.Name = "BossBar"
+	_bossBarFrame.Size = UDim2.new(0.6, 0, 0, 32)
+	_bossBarFrame.Position = UDim2.new(0.2, 0, 0, 75)
+	_bossBarFrame.BackgroundColor3 = Color3.fromRGB(20, 10, 30)
+	_bossBarFrame.BorderSizePixel = 0
+	_bossBarFrame.Visible = false
+	_bossBarFrame.ZIndex = 80
+	_bossBarFrame.Parent = _screenGui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = _bossBarFrame
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(100, 40, 140)
+	stroke.Thickness = 2
+	stroke.Parent = _bossBarFrame
+
+	_bossBarFill = Instance.new("Frame")
+	_bossBarFill.Name = "Fill"
+	_bossBarFill.Size = UDim2.new(1, -4, 1, -4)
+	_bossBarFill.Position = UDim2.new(0, 2, 0, 2)
+	_bossBarFill.BackgroundColor3 = Color3.fromRGB(180, 30, 30)
+	_bossBarFill.BorderSizePixel = 0
+	_bossBarFill.ZIndex = 81
+	_bossBarFill.Parent = _bossBarFrame
+
+	local fillCorner = Instance.new("UICorner")
+	fillCorner.CornerRadius = UDim.new(0, 4)
+	fillCorner.Parent = _bossBarFill
+
+	_bossBarTitle = createLabel(_bossBarFrame, {
+		Name = "BossTitle",
+		Size = UDim2.new(1, 0, 0, 20),
+		Position = UDim2.new(0, 0, 0, -22),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "THE ONSLAUGHT",
+		TextSize = 18,
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = Color3.fromRGB(200, 100, 255),
+		ZIndex = 81,
+	})
+end
+
+function HUDController:UpdateBossHealth(healthPct: number, enraged: boolean)
+	if not _bossBarFrame then
+		return
+	end
+
+	_bossBarFrame.Visible = true
+	_bossBarFill.Size = UDim2.new(math.clamp(healthPct, 0, 1) - 0.005, -4, 1, -4)
+
+	if enraged then
+		-- Red pulse effect
+		local pulse = math.sin(tick() * 6) * 0.15
+		_bossBarFill.BackgroundColor3 = Color3.fromRGB(255, math.floor(30 + pulse * 100), 30)
+		_bossBarTitle.TextColor3 = Color3.fromRGB(255, 60, 60)
+	else
+		_bossBarFill.BackgroundColor3 = Color3.fromRGB(180, 30, 30)
+	end
+
+	if healthPct <= 0 then
+		task.delay(2, function()
+			if _bossBarFrame then
+				_bossBarFrame.Visible = false
+			end
+		end)
+	end
+end
+
+-------------------------------------------------
 -- WEAPON UNLOCK NOTIFICATION
 -------------------------------------------------
 
@@ -1052,9 +1134,15 @@ function HUDController:KnitStart()
 			self:ShowStateMessage("Wave cleared!", 2)
 		elseif state == "GameOver" then
 			_cardFrame.Visible = false
+			if _bossBarFrame then
+				_bossBarFrame.Visible = false
+			end
 			self:ShowStateMessage("GAME OVER", 3)
 		elseif state == "Victory" then
 			_cardFrame.Visible = false
+			if _bossBarFrame then
+				_bossBarFrame.Visible = false
+			end
 			self:ShowStateMessage("VICTORY!", 3)
 		elseif state == "Lobby" then
 			_gameOverFrame.Visible = false
@@ -1116,6 +1204,12 @@ function HUDController:KnitStart()
 	-- Weapon unlock notification
 	StatsService.WeaponUnlocked:Connect(function(weaponName: string)
 		self:ShowWeaponUnlocked(weaponName)
+	end)
+
+	-- Boss health bar
+	local EnemyService = Knit.GetService("EnemyService")
+	EnemyService.BossHealthUpdate:Connect(function(healthPct: number, enraged: boolean)
+		self:UpdateBossHealth(healthPct, enraged)
 	end)
 end
 

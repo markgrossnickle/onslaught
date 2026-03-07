@@ -142,12 +142,14 @@ function CombatController:_flashEnemy(model: Model)
 	end)
 end
 
-function CombatController:_playDeathEffect(position: Vector3, color: Color3)
-	-- White flash at death position
+function CombatController:_playDeathEffect(position: Vector3, enemyType: string)
+	local vfxCfg = GameConfig.VFX
+
+	-- Void flash at death position (purple/dark burst)
 	local flash = Instance.new("Part")
 	flash.Shape = Enum.PartType.Ball
 	flash.Size = Vector3.one * 3
-	flash.Color = Color3.fromRGB(255, 255, 255)
+	flash.Color = vfxCfg.VoidDeathColor1
 	flash.Material = Enum.Material.Neon
 	flash.Anchored = true
 	flash.CanCollide = false
@@ -156,29 +158,55 @@ function CombatController:_playDeathEffect(position: Vector3, color: Color3)
 	flash.Position = position
 	flash.Parent = workspace
 
-	TweenService:Create(flash, TweenInfo.new(0.2), { Transparency = 1, Size = Vector3.one * 6 }):Play()
-	task.delay(0.2, function()
+	TweenService:Create(flash, TweenInfo.new(0.25), { Transparency = 1, Size = Vector3.one * 7 }):Play()
+	task.delay(0.25, function()
 		flash:Destroy()
 	end)
 
-	-- Colored parts burst (8-12 pieces)
-	local count = math.random(8, 12)
-	for _ = 1, count do
+	-- Core color flash (white->purple)
+	local coreFlash = Instance.new("Part")
+	coreFlash.Shape = Enum.PartType.Ball
+	coreFlash.Size = Vector3.one * 1.5
+	coreFlash.Color = Color3.fromRGB(255, 255, 255)
+	coreFlash.Material = Enum.Material.Neon
+	coreFlash.Anchored = true
+	coreFlash.CanCollide = false
+	coreFlash.CastShadow = false
+	coreFlash.Transparency = 0
+	coreFlash.Position = position
+	coreFlash.Parent = workspace
+
+	TweenService:Create(coreFlash, TweenInfo.new(0.15), { Color = vfxCfg.VoidDeathColor1, Transparency = 1 }):Play()
+	task.delay(0.15, function()
+		coreFlash:Destroy()
+	end)
+
+	-- Void particle burst (dark purple/black pieces)
+	local count = math.random(6, 10)
+	local colors = { vfxCfg.VoidDeathColor1, vfxCfg.VoidDeathColor2 }
+
+	-- Shade: wings fold death (just smaller burst)
+	if enemyType == "Shade" then
+		count = 4
+	end
+
+	for i = 1, count do
 		local part = Instance.new("Part")
-		part.Size = Vector3.new(math.random() * 1.5 + 0.3, math.random() * 1.5 + 0.3, math.random() * 1.5 + 0.3)
-		part.Color = color
+		part.Size = Vector3.new(math.random() * 1.2 + 0.2, math.random() * 1.2 + 0.2, math.random() * 1.2 + 0.2)
+		part.Color = colors[(i % 2) + 1]
 		part.Material = Enum.Material.SmoothPlastic
-		part.Position = position + Vector3.new((math.random() - 0.5) * 3, math.random() * 2, (math.random() - 0.5) * 3)
+		part.Position = position
+			+ Vector3.new((math.random() - 0.5) * 2, math.random() * 1.5, (math.random() - 0.5) * 2)
 		part.Anchored = false
 		part.CanCollide = true
 		part.Parent = workspace
 
-		part:ApplyImpulse(Vector3.new((math.random() - 0.5) * 80, math.random() * 60 + 20, (math.random() - 0.5) * 80))
+		part:ApplyImpulse(Vector3.new((math.random() - 0.5) * 60, math.random() * 40 + 15, (math.random() - 0.5) * 60))
 
-		task.delay(1.5, function()
+		task.delay(1.2, function()
 			if part and part.Parent then
-				TweenService:Create(part, TweenInfo.new(0.5), { Transparency = 1 }):Play()
-				task.delay(0.5, function()
+				TweenService:Create(part, TweenInfo.new(0.4), { Transparency = 1 }):Play()
+				task.delay(0.4, function()
 					part:Destroy()
 				end)
 			end
@@ -495,6 +523,73 @@ function CombatController:_playBossSpawnWarning()
 end
 
 -------------------------------------------------
+-- BOSS ATTACK VFX
+-------------------------------------------------
+
+function CombatController:_playTendrilSlam(position: Vector3, radius: number)
+	_cameraShakeTime = 0.4
+
+	-- Telegraph: red ring on ground
+	local ring = Instance.new("Part")
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Size = Vector3.new(0.3, radius * 2, radius * 2)
+	ring.Color = Color3.fromRGB(255, 40, 40)
+	ring.Material = Enum.Material.Neon
+	ring.Anchored = true
+	ring.CanCollide = false
+	ring.CastShadow = false
+	ring.Transparency = 0.5
+	ring.CFrame = CFrame.new(position.X, 0.5, position.Z) * CFrame.Angles(0, 0, math.rad(90))
+	ring.Parent = workspace
+
+	-- Shockwave expand
+	task.spawn(function()
+		local elapsed = 0
+		while elapsed < 0.5 do
+			local dt = RunService.RenderStepped:Wait()
+			elapsed += dt
+			local t = elapsed / 0.5
+			ring.Transparency = 0.5 + t * 0.5
+			local expandSize = radius * 2 + t * 10
+			ring.Size = Vector3.new(0.3, expandSize, expandSize)
+		end
+		ring:Destroy()
+	end)
+end
+
+function CombatController:_playVoidPull(position: Vector3, duration: number)
+	_cameraShakeTime = duration * 0.3
+
+	-- Dark vortex sphere
+	local vortex = Instance.new("Part")
+	vortex.Shape = Enum.PartType.Ball
+	vortex.Size = Vector3.one * 6
+	vortex.Color = Color3.fromRGB(30, 0, 50)
+	vortex.Material = Enum.Material.ForceField
+	vortex.Anchored = true
+	vortex.CanCollide = false
+	vortex.CastShadow = false
+	vortex.Transparency = 0.4
+	vortex.Position = position
+	vortex.Parent = workspace
+
+	task.spawn(function()
+		local elapsed = 0
+		while elapsed < duration do
+			local dt = RunService.RenderStepped:Wait()
+			elapsed += dt
+			local pulse = math.sin(elapsed * 6) * 2
+			vortex.Size = Vector3.one * (6 + pulse)
+			vortex.Transparency = 0.4 + math.sin(elapsed * 4) * 0.1
+		end
+		TweenService:Create(vortex, TweenInfo.new(0.3), { Transparency = 1, Size = Vector3.one * 2 }):Play()
+		task.delay(0.3, function()
+			vortex:Destroy()
+		end)
+	end)
+end
+
+-------------------------------------------------
 -- LIFECYCLE
 -------------------------------------------------
 
@@ -517,10 +612,10 @@ function CombatController:KnitStart()
 		self:_flashEnemy(model)
 	end)
 
-	-- Enemy death VFX
-	EnemyService.EnemyKilled:Connect(function(model: Model, _enemyType: string)
+	-- Enemy death VFX (void-themed)
+	EnemyService.EnemyKilled:Connect(function(model: Model, enemyType: string)
 		if model and model.PrimaryPart then
-			self:_playDeathEffect(model.PrimaryPart.Position, model.PrimaryPart.Color)
+			self:_playDeathEffect(model.PrimaryPart.Position, enemyType)
 		end
 	end)
 
@@ -552,6 +647,15 @@ function CombatController:KnitStart()
 	-- Level up VFX
 	GameService.ShowUpgradeCards:Connect(function(_cards: any)
 		self:_playLevelUpEffect()
+	end)
+
+	-- Boss attack VFX
+	EnemyService.TendrilSlam:Connect(function(position: Vector3, radius: number)
+		self:_playTendrilSlam(position, radius)
+	end)
+
+	EnemyService.VoidPullStarted:Connect(function(position: Vector3, duration: number)
+		self:_playVoidPull(position, duration)
 	end)
 end
 
