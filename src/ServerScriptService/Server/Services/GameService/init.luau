@@ -4,7 +4,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local Signal = require(ReplicatedStorage.Packages.Signal)
-local Promise = require(ReplicatedStorage.Packages.Promise)
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
 
 export type GameState = "WaitingForPlayers" | "Intermission" | "Wave" | "GameOver"
@@ -226,7 +225,7 @@ function GameService:_onPlayerDied(player: Player)
 		-- Reset and restart
 		_running = false
 		_currentWave = 0
-		for p, s in _playerStats do
+		for p, _s in _playerStats do
 			if p.Parent == Players then
 				self:_initPlayerStats(p)
 				self:_syncStats(p)

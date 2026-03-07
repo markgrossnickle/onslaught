@@ -3,7 +3,6 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
-local Trove = require(ReplicatedStorage.Packages.Trove)
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
 
 local Player = Players.LocalPlayer
@@ -161,6 +160,20 @@ function HUDController:_buildUI()
 		TextSize = 20,
 	})
 
+	-- Crosshair (center dot)
+	local crosshair = Instance.new("Frame")
+	crosshair.Name = "Crosshair"
+	crosshair.Size = UDim2.new(0, 6, 0, 6)
+	crosshair.Position = UDim2.new(0.5, -3, 0.5, -3)
+	crosshair.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	crosshair.BackgroundTransparency = 0.3
+	crosshair.BorderSizePixel = 0
+	crosshair.Parent = _screenGui
+
+	local crossCorner = Instance.new("UICorner")
+	crossCorner.CornerRadius = UDim.new(1, 0)
+	crossCorner.Parent = crosshair
+
 	-- Upgrade frame (center, hidden by default)
 	self:_buildUpgradeUI()
 end
@@ -180,7 +193,7 @@ function HUDController:_buildUpgradeUI()
 	corner.CornerRadius = UDim.new(0, 12)
 	corner.Parent = _upgradeFrame
 
-	local title = createLabel(_upgradeFrame, {
+	createLabel(_upgradeFrame, {
 		Name = "Title",
 		Size = UDim2.new(1, 0, 0, 40),
 		Position = UDim2.new(0, 0, 0, 10),
@@ -190,7 +203,7 @@ function HUDController:_buildUpgradeUI()
 		Font = Enum.Font.GothamBlack,
 	})
 
-	local pointsText = createLabel(_upgradeFrame, {
+	createLabel(_upgradeFrame, {
 		Name = "PointsText",
 		Size = UDim2.new(1, 0, 0, 25),
 		Position = UDim2.new(0, 0, 0, 50),
@@ -234,10 +247,9 @@ function HUDController:_buildUpgradeUI()
 
 		btn.MouseButton1Click:Connect(function()
 			local GameService = Knit.GetService("GameService")
-			local ok, result = GameService:RequestUpgrade(upgradeId):await()
-			if ok and result then
-				-- Updated via stats sync
-			end
+			GameService:RequestUpgrade(upgradeId):catch(function(err)
+				warn("Upgrade failed:", err)
+			end)
 		end)
 	end
 end

@@ -14,7 +14,6 @@ local CombatController = Knit.CreateController({
 })
 
 local _lastAttackTime: number = 0
-local _cooldownUI: Frame? = nil
 
 function CombatController:_createSwordVisual()
 	-- Create a simple sword tool visual attached to character
@@ -137,14 +136,14 @@ function CombatController:KnitStart()
 	end)
 
 	-- Enemy death VFX
-	EnemyService.EnemyKilled:Connect(function(model: Model, enemyType: string)
+	EnemyService.EnemyKilled:Connect(function(model: Model, _enemyType: string)
 		if model and model.PrimaryPart then
 			self:_playDeathEffect(model.PrimaryPart.Position, model.PrimaryPart.Color)
 		end
 	end)
 end
 
-function CombatController:_playHitEffect(position: Vector3, direction: Vector3)
+function CombatController:_playHitEffect(position: Vector3, _direction: Vector3)
 	-- Small particle burst at hit location
 	local part = Instance.new("Part")
 	part.Size = Vector3.new(0.5, 0.5, 0.5)
