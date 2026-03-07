@@ -15,8 +15,10 @@ local CombatService = Knit.CreateService({
 	Client = {
 		OrbiterSync = Knit.CreateSignal(), -- sync orbiter positions for VFX
 		ProjectileFired = Knit.CreateSignal(),
+		ProjectileImpact = Knit.CreateSignal(), -- (position: Vector3)
 		LightningFired = Knit.CreateSignal(), -- (startPos, endPos, chainPositions)
 		AuraSync = Knit.CreateSignal(), -- (playerPos, radius)
+		BossSpawned = Knit.CreateSignal(), -- ()
 	},
 })
 
@@ -186,6 +188,25 @@ function CombatService:_rebuildOrbiters(player: Player)
 		orb.CanCollide = false
 		orb.CastShadow = false
 		orb.Position = Vector3.new(0, -100, 0) -- offscreen until positioned
+
+		-- Trail VFX
+		local att0 = Instance.new("Attachment")
+		att0.Position = Vector3.new(0, 0, -cfg.SphereSize * 0.3)
+		att0.Parent = orb
+		local att1 = Instance.new("Attachment")
+		att1.Position = Vector3.new(0, 0, cfg.SphereSize * 0.3)
+		att1.Parent = orb
+		local trail = Instance.new("Trail")
+		trail.Attachment0 = att0
+		trail.Attachment1 = att1
+		trail.Lifetime = 0.3
+		trail.MinLength = 0.1
+		trail.Color = ColorSequence.new(cfg.Color)
+		trail.Transparency =
+			NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 1) })
+		trail.WidthScale = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0) })
+		trail.Parent = orb
+
 		orb.Parent = workspace
 		table.insert(parts, orb)
 	end
@@ -348,6 +369,25 @@ function CombatService:_updateProjectiles(dt: number)
 		bullet.CanCollide = false
 		bullet.CastShadow = false
 		bullet.CFrame = CFrame.lookAt(pos + dir * 3, pos + dir * 4)
+
+		-- Trail VFX
+		local bAtt0 = Instance.new("Attachment")
+		bAtt0.Position = Vector3.new(0, 0, -projCfg.BulletSize.Z * 0.5)
+		bAtt0.Parent = bullet
+		local bAtt1 = Instance.new("Attachment")
+		bAtt1.Position = Vector3.new(0, 0, projCfg.BulletSize.Z * 0.5)
+		bAtt1.Parent = bullet
+		local bTrail = Instance.new("Trail")
+		bTrail.Attachment0 = bAtt0
+		bTrail.Attachment1 = bAtt1
+		bTrail.Lifetime = 0.2
+		bTrail.MinLength = 0.1
+		bTrail.Color = ColorSequence.new(projCfg.Color)
+		bTrail.Transparency =
+			NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) })
+		bTrail.WidthScale = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0.3) })
+		bTrail.Parent = bullet
+
 		bullet.Parent = _projectileFolder
 
 		table.insert(_activeProjectiles, {
@@ -400,6 +440,10 @@ function CombatService:_updateProjectiles(dt: number)
 		local idx = toRemove[i]
 		local proj = _activeProjectiles[idx]
 		if proj.Part and proj.Part.Parent then
+			-- Fire impact VFX if it hit something (not just range expiry)
+			if proj.PierceLeft <= 0 then
+				self.Client.ProjectileImpact:FireAll(proj.Part.Position)
+			end
 			proj.Part:Destroy()
 		end
 		table.remove(_activeProjectiles, idx)
@@ -558,10 +602,14 @@ function CombatService:_updateAura(_dt: number)
 
 		local pos = root.Position
 
-		-- Position the aura ring at the player
+		-- Position the aura ring at the player with pulse effect
 		local ring = _auraParts[player]
 		if ring and ring.Parent then
-			ring.Size = Vector3.new(0.3, ws.AuraRadius * 2, ws.AuraRadius * 2)
+			local pulse = math.sin(now * 3) -- oscillate between -1 and 1
+			local scaleFactor = 1.0 + pulse * 0.05 -- 0.95x to 1.05x
+			local diameter = ws.AuraRadius * 2 * scaleFactor
+			ring.Size = Vector3.new(0.3, diameter, diameter)
+			ring.Transparency = 0.6 + pulse * 0.1 -- 0.5 to 0.7
 			-- Cylinder needs rotation so it lies flat on the ground
 			ring.CFrame = CFrame.new(pos.X, pos.Y - 1, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
 		end

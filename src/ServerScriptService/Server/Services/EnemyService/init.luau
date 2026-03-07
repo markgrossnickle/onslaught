@@ -38,6 +38,7 @@ local _lastBossSpawnTime: number = 0
 
 local GameService: any
 local ArenaService: any
+local CombatService: any
 
 function EnemyService:_createEnemyModel(enemyType: string, position: Vector3): Model
 	local cfg = (GameConfig.Enemies.Types :: any)[enemyType]
@@ -439,6 +440,8 @@ function EnemyService:_checkBossSpawn()
 		-- Add boss to wave enemy count so it doesn't end the wave early
 		local remaining = GameService:GetEnemiesRemaining()
 		GameService:SetEnemiesRemaining(remaining + 1)
+		-- Notify clients for VFX
+		CombatService.Client.BossSpawned:FireAll()
 	end
 end
 
@@ -483,6 +486,7 @@ end
 function EnemyService:KnitStart()
 	GameService = Knit.GetService("GameService")
 	ArenaService = Knit.GetService("ArenaService")
+	CombatService = Knit.GetService("CombatService")
 
 	-- Listen for wave starts
 	GameService.WaveStarted:Connect(function(wave: number, enemyCount: number)
