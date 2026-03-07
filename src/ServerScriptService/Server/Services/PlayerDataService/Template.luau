@@ -22,6 +22,9 @@ export type PlayerData = {
 
 	-- Selected character
 	SelectedCharacter: string,
+
+	-- Achievements: achievementId -> true
+	UnlockedAchievements: { [string]: boolean },
 }
 
 local playerDataTemplate: PlayerData = {
@@ -40,6 +43,8 @@ local playerDataTemplate: PlayerData = {
 	},
 
 	SelectedCharacter = "Survivor",
+
+	UnlockedAchievements = {},
 }
 
 return playerDataTemplate

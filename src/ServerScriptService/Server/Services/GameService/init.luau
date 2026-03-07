@@ -83,6 +83,7 @@ local _gemFolder: Folder = nil :: any
 local CombatService: any
 local StatsService: any
 local PowerUpService: any
+local AchievementService: any
 
 -- Timed run
 local RUN_DURATION = 900 -- 15 minutes
@@ -340,6 +341,11 @@ function GameService:DamagePlayer(player: Player, damage: number)
 	end
 
 	stats.Health = math.max(0, stats.Health - damage)
+
+	-- Track damage for achievement
+	if AchievementService then
+		AchievementService:OnPlayerDamaged(player)
+	end
 
 	-- Last Stand relic: survive one killing blow per run
 	if stats.Health <= 0 and not stats.LastStandUsed then
@@ -665,6 +671,11 @@ function GameService:AddXP(player: Player, amount: number)
 		stats.Level += 1
 		stats.PendingLevelUps += 1
 		xpNeeded = cfg.BaseXPToLevel * (cfg.XPScaling ^ (stats.Level - 1))
+
+		-- Achievement: max level
+		if stats.Level >= cfg.MaxLevel and AchievementService then
+			AchievementService:OnMaxLevel(player)
+		end
 	end
 
 	self:_syncStats(player)
@@ -814,6 +825,10 @@ function GameService:_applyUpgrade(player: Player, upgradeId: string): boolean
 			return false
 		end
 		stats.PendingLevelUps -= 1
+		-- Achievement: first evolution
+		if AchievementService then
+			AchievementService:OnEvolution(player)
+		end
 		self:_syncStats(player)
 		if stats.PendingLevelUps > 0 then
 			task.defer(function()
@@ -860,6 +875,51 @@ function GameService:_applyUpgrade(player: Player, upgradeId: string): boolean
 		-- All weapon-related cards (acquisition + upgrades) go through CombatService
 		CombatService:ApplyWeaponUpgrade(player, upgradeId)
 		CombatService:UpdateDamage(player)
+
+		-- Achievement: weapon count
+		if AchievementService then
+			local ws = CombatService:GetWeaponState(player)
+			if ws then
+				local count = 0
+				if ws.HasOrbiter then
+					count += 1
+				end
+				if ws.HasProjectile then
+					count += 1
+				end
+				if ws.HasLightning then
+					count += 1
+				end
+				if ws.HasAura then
+					count += 1
+				end
+				if ws.HasVoidWhip then
+					count += 1
+				end
+				if ws.HasShadowDaggers then
+					count += 1
+				end
+				if ws.HasGravityWell then
+					count += 1
+				end
+				if ws.HasPlagueCloud then
+					count += 1
+				end
+				if ws.HasVoidMissiles then
+					count += 1
+				end
+				if ws.HasSpectralScythe then
+					count += 1
+				end
+				if ws.HasSoulDrain then
+					count += 1
+				end
+				if ws.HasShockwave then
+					count += 1
+				end
+				AchievementService:CheckWeaponMilestones(player, count)
+			end
+		end
 	end
 
 	self:_syncStats(player)
@@ -1145,6 +1205,7 @@ function GameService:KnitStart()
 	CombatService = Knit.GetService("CombatService")
 	StatsService = Knit.GetService("StatsService")
 	PowerUpService = Knit.GetService("PowerUpService")
+	AchievementService = Knit.GetService("AchievementService")
 
 	-- Spawn late joiners
 	Players.PlayerAdded:Connect(function(player: Player)
