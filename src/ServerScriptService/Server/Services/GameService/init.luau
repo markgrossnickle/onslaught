@@ -719,8 +719,8 @@ function GameService:KnitStart()
 	RunService.Heartbeat:Connect(function(dt: number)
 		self:_updateXPGems(dt)
 
-		-- Update game timer
-		if _running and _state == "Wave" then
+		-- Update game timer (ticks during Wave and Intermission)
+		if _running and (_state == "Wave" or _state == "Intermission") then
 			_gameElapsed = tick() - _gameStartTime
 			local now = tick()
 			if (now - _lastTimerTick) >= 1 then

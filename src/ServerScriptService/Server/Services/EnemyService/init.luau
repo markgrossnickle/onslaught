@@ -399,6 +399,11 @@ function EnemyService:_spawnWaveEnemies(wave: number, totalEnemies: number)
 end
 
 function EnemyService:_checkBossSpawn()
+	-- Only spawn bosses during active waves
+	if GameService:GetState() ~= "Wave" then
+		return
+	end
+
 	local enemyCfg = GameConfig.Enemies
 	local gameElapsed = GameService:GetGameElapsed()
 
