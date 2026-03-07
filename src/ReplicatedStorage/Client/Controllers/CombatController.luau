@@ -590,6 +590,167 @@ function CombatController:_playVoidPull(position: Vector3, duration: number)
 end
 
 -------------------------------------------------
+-- POWER-UP VFX
+-------------------------------------------------
+
+function CombatController:_playPowerUpCollect(puType: string, puName: string)
+	local char = Player.Character
+	if not char then
+		return
+	end
+	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then
+		return
+	end
+
+	local puCfg = (GameConfig.PowerUps.Types :: any)[puType]
+	local color = puCfg and puCfg.Color or Color3.fromRGB(255, 255, 255)
+
+	-- Flash
+	local flash = Instance.new("Part")
+	flash.Shape = Enum.PartType.Ball
+	flash.Size = Vector3.one * 5
+	flash.Color = color
+	flash.Material = Enum.Material.Neon
+	flash.Anchored = true
+	flash.CanCollide = false
+	flash.CastShadow = false
+	flash.Transparency = 0.3
+	flash.Position = root.Position
+	flash.Parent = workspace
+
+	TweenService:Create(flash, TweenInfo.new(0.3), { Transparency = 1, Size = Vector3.one * 8 }):Play()
+	task.delay(0.3, function()
+		flash:Destroy()
+	end)
+
+	-- Floating text
+	local textPart = Instance.new("Part")
+	textPart.Size = Vector3.new(0.1, 0.1, 0.1)
+	textPart.Position = root.Position + Vector3.new(0, 4, 0)
+	textPart.Anchored = true
+	textPart.CanCollide = false
+	textPart.Transparency = 1
+	textPart.Parent = workspace
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.new(0, 200, 0, 40)
+	billboard.AlwaysOnTop = true
+	billboard.Parent = textPart
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = puName
+	label.TextColor3 = color
+	label.Font = Enum.Font.GothamBlack
+	label.TextSize = 22
+	label.TextStrokeTransparency = 0.3
+	label.Parent = billboard
+
+	task.spawn(function()
+		local elapsed = 0
+		while elapsed < 1.5 do
+			local dt = RunService.RenderStepped:Wait()
+			elapsed += dt
+			textPart.Position += Vector3.new(0, dt * 12, 0)
+			if elapsed > 0.8 then
+				label.TextTransparency = (elapsed - 0.8) / 0.7
+				label.TextStrokeTransparency = 0.3 + (elapsed - 0.8)
+			end
+		end
+		textPart:Destroy()
+	end)
+end
+
+function CombatController:_playVoidBombExplosion(position: Vector3)
+	_cameraShakeTime = 0.5
+
+	local ring = Instance.new("Part")
+	ring.Shape = Enum.PartType.Ball
+	ring.Size = Vector3.one * 5
+	ring.Color = Color3.fromRGB(200, 30, 30)
+	ring.Material = Enum.Material.Neon
+	ring.Anchored = true
+	ring.CanCollide = false
+	ring.CastShadow = false
+	ring.Transparency = 0.2
+	ring.Position = position
+	ring.Parent = workspace
+
+	TweenService:Create(ring, TweenInfo.new(0.4), { Size = Vector3.one * 60, Transparency = 1 }):Play()
+	task.delay(0.4, function()
+		ring:Destroy()
+	end)
+end
+
+local _shieldBubble: BasePart? = nil
+
+function CombatController:_showShieldBubble()
+	if _shieldBubble then
+		return
+	end
+
+	local char = Player.Character
+	if not char then
+		return
+	end
+	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then
+		return
+	end
+
+	local bubble = Instance.new("Part")
+	bubble.Name = "ShieldBubble"
+	bubble.Shape = Enum.PartType.Ball
+	bubble.Size = Vector3.one * 8
+	bubble.Color = Color3.fromRGB(80, 220, 255)
+	bubble.Material = Enum.Material.ForceField
+	bubble.Transparency = 0.7
+	bubble.Anchored = false
+	bubble.CanCollide = false
+	bubble.CastShadow = false
+	bubble.Parent = workspace
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = root
+	weld.Part1 = bubble
+	weld.Parent = bubble
+	bubble.CFrame = root.CFrame
+
+	_shieldBubble = bubble
+end
+
+function CombatController:_removeShieldBubble()
+	if _shieldBubble then
+		-- Shatter effect
+		local pos = _shieldBubble.Position
+		_shieldBubble:Destroy()
+		_shieldBubble = nil
+
+		for _ = 1, 6 do
+			local shard = Instance.new("Part")
+			shard.Size = Vector3.new(0.5, 0.5, 0.1)
+			shard.Color = Color3.fromRGB(80, 220, 255)
+			shard.Material = Enum.Material.Neon
+			shard.Anchored = false
+			shard.CanCollide = false
+			shard.CastShadow = false
+			shard.Position = pos + Vector3.new((math.random() - 0.5) * 3, math.random() * 2, (math.random() - 0.5) * 3)
+			shard.Parent = workspace
+			shard:ApplyImpulse(
+				Vector3.new((math.random() - 0.5) * 40, math.random() * 20 + 10, (math.random() - 0.5) * 40)
+			)
+			task.delay(0.5, function()
+				if shard.Parent then
+					shard:Destroy()
+				end
+			end)
+		end
+	end
+end
+
+-------------------------------------------------
 -- LIFECYCLE
 -------------------------------------------------
 
@@ -656,6 +817,29 @@ function CombatController:KnitStart()
 
 	EnemyService.VoidPullStarted:Connect(function(position: Vector3, duration: number)
 		self:_playVoidPull(position, duration)
+	end)
+
+	-- Power-up VFX
+	local PowerUpService = Knit.GetService("PowerUpService")
+
+	PowerUpService.PowerUpCollected:Connect(function(puType: string, puName: string)
+		self:_playPowerUpCollect(puType, puName)
+	end)
+
+	PowerUpService.VoidBombExploded:Connect(function(position: Vector3)
+		self:_playVoidBombExplosion(position)
+	end)
+
+	PowerUpService.BuffStarted:Connect(function(puType: string, _duration: number)
+		if puType == "VoidShield" then
+			self:_showShieldBubble()
+		end
+	end)
+
+	PowerUpService.BuffEnded:Connect(function(puType: string)
+		if puType == "VoidShield" then
+			self:_removeShieldBubble()
+		end
 	end)
 end
 

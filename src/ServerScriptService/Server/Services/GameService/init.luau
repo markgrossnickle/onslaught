@@ -81,6 +81,7 @@ local _gemFolder: Folder = nil :: any
 
 local CombatService: any
 local StatsService: any
+local PowerUpService: any
 
 -- Timed run
 local RUN_DURATION = 900 -- 15 minutes
@@ -197,6 +198,10 @@ function GameService:GetPlayerStats(player: Player): PlayerStats?
 	return _playerStats[player]
 end
 
+function GameService:GetAllPlayerStats(): { [Player]: PlayerStats }
+	return _playerStats
+end
+
 function GameService:_initPlayerStats(player: Player): PlayerStats
 	local cfg = GameConfig.Player
 
@@ -305,6 +310,12 @@ function GameService:DamagePlayer(player: Player, damage: number)
 		return
 	end
 	stats.LastDamageTime = now
+
+	-- Void Shield: blocks one hit completely
+	if PowerUpService and PowerUpService:HasShield(player) then
+		PowerUpService:ConsumeShield(player)
+		return
+	end
 
 	stats.Health = math.max(0, stats.Health - damage)
 
@@ -554,6 +565,24 @@ function GameService:_collectGem(player: Player, gem: XPGem)
 
 	self:AddXP(player, gem.Value)
 	self.Client.XPGemCollected:Fire(player, gem.Value)
+end
+
+function GameService:MagnetBurstAllGems(player: Player)
+	local char = player.Character
+	if not char then
+		return
+	end
+	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then
+		return
+	end
+
+	-- Instantly teleport all gems to the player position (they'll be collected next frame)
+	for _, gem in _xpGems do
+		if gem.Part and gem.Part.Parent then
+			gem.Part.Position = root.Position
+		end
+	end
 end
 
 function GameService:_clearAllGems()
@@ -965,6 +994,7 @@ function GameService:KnitStart()
 	Players.CharacterAutoLoads = false
 	CombatService = Knit.GetService("CombatService")
 	StatsService = Knit.GetService("StatsService")
+	PowerUpService = Knit.GetService("PowerUpService")
 
 	-- Spawn late joiners
 	Players.PlayerAdded:Connect(function(player: Player)

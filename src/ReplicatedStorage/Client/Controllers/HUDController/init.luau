@@ -33,6 +33,8 @@ local _lobbyFrame: Frame = nil :: any
 local _bossBarFrame: Frame = nil :: any
 local _bossBarFill: Frame = nil :: any
 local _bossBarTitle: TextLabel = nil :: any
+local _buffFrame: Frame = nil :: any
+local _activeBuffIcons: { [string]: { Frame: Frame, EndTime: number } } = {}
 
 local function createLabel(parent: Instance, props: { [string]: any }): TextLabel
 	local label = Instance.new("TextLabel")
@@ -224,6 +226,9 @@ function HUDController:_buildUI()
 
 	-- Boss health bar (hidden by default)
 	self:_buildBossBar()
+
+	-- Buff indicator strip
+	self:_buildBuffFrame()
 end
 
 -------------------------------------------------
@@ -946,6 +951,117 @@ function HUDController:_buildStatsPanel(lifetimeStats: { [string]: any }, unlock
 end
 
 -------------------------------------------------
+-- BUFF INDICATORS
+-------------------------------------------------
+
+function HUDController:_buildBuffFrame()
+	_buffFrame = Instance.new("Frame")
+	_buffFrame.Name = "BuffFrame"
+	_buffFrame.Size = UDim2.new(0, 300, 0, 32)
+	_buffFrame.Position = UDim2.new(0, 20, 1, -140)
+	_buffFrame.BackgroundTransparency = 1
+	_buffFrame.BorderSizePixel = 0
+	_buffFrame.Parent = _screenGui
+
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.Padding = UDim.new(0, 6)
+	layout.Parent = _buffFrame
+end
+
+function HUDController:ShowBuff(buffType: string, duration: number)
+	if not _buffFrame then
+		return
+	end
+
+	local puCfg = (GameConfig.PowerUps.Types :: any)[buffType]
+	if not puCfg then
+		return
+	end
+
+	-- Remove existing icon for same buff
+	if _activeBuffIcons[buffType] then
+		_activeBuffIcons[buffType].Frame:Destroy()
+		_activeBuffIcons[buffType] = nil
+	end
+
+	local icon = Instance.new("Frame")
+	icon.Name = buffType
+	icon.Size = UDim2.new(0, 90, 0, 28)
+	icon.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+	icon.BackgroundTransparency = 0.3
+	icon.BorderSizePixel = 0
+	icon.Parent = _buffFrame
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = icon
+
+	local dot = Instance.new("Frame")
+	dot.Size = UDim2.new(0, 10, 0, 10)
+	dot.Position = UDim2.new(0, 4, 0.5, -5)
+	dot.BackgroundColor3 = puCfg.Color
+	dot.BorderSizePixel = 0
+	dot.Parent = icon
+
+	local dotCorner = Instance.new("UICorner")
+	dotCorner.CornerRadius = UDim.new(1, 0)
+	dotCorner.Parent = dot
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Name = "BuffName"
+	nameLabel.Size = UDim2.new(1, -50, 1, 0)
+	nameLabel.Position = UDim2.new(0, 18, 0, 0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Text = puCfg.Name
+	nameLabel.TextColor3 = puCfg.Color
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.TextSize = 11
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.Parent = icon
+
+	local timerLabel = Instance.new("TextLabel")
+	timerLabel.Name = "Timer"
+	timerLabel.Size = UDim2.new(0, 30, 1, 0)
+	timerLabel.Position = UDim2.new(1, -34, 0, 0)
+	timerLabel.BackgroundTransparency = 1
+	timerLabel.Text = tostring(math.ceil(duration))
+	timerLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	timerLabel.Font = Enum.Font.GothamBold
+	timerLabel.TextSize = 12
+	timerLabel.TextXAlignment = Enum.TextXAlignment.Right
+	timerLabel.Parent = icon
+
+	_activeBuffIcons[buffType] = {
+		Frame = icon,
+		EndTime = tick() + duration,
+	}
+end
+
+function HUDController:RemoveBuff(buffType: string)
+	local entry = _activeBuffIcons[buffType]
+	if entry then
+		entry.Frame:Destroy()
+		_activeBuffIcons[buffType] = nil
+	end
+end
+
+function HUDController:_updateBuffTimers()
+	local now = tick()
+	for buffType, entry in _activeBuffIcons do
+		local remaining = math.max(0, entry.EndTime - now)
+		local timerLabel = entry.Frame:FindFirstChild("Timer") :: TextLabel?
+		if timerLabel then
+			timerLabel.Text = tostring(math.ceil(remaining))
+		end
+		if remaining <= 0 then
+			entry.Frame:Destroy()
+			_activeBuffIcons[buffType] = nil
+		end
+	end
+end
+
+-------------------------------------------------
 -- BOSS HEALTH BAR
 -------------------------------------------------
 
@@ -1210,6 +1326,27 @@ function HUDController:KnitStart()
 	local EnemyService = Knit.GetService("EnemyService")
 	EnemyService.BossHealthUpdate:Connect(function(healthPct: number, enraged: boolean)
 		self:UpdateBossHealth(healthPct, enraged)
+	end)
+
+	-- Power-up buff indicators
+	local PowerUpService = Knit.GetService("PowerUpService")
+
+	PowerUpService.BuffStarted:Connect(function(buffType: string, duration: number)
+		self:ShowBuff(buffType, duration)
+	end)
+
+	PowerUpService.BuffEnded:Connect(function(buffType: string)
+		self:RemoveBuff(buffType)
+	end)
+
+	-- Chest HUD indicator
+	PowerUpService.ChestSpawned:Connect(function(_position: Vector3)
+		self:ShowStateMessage("Void Chest spawned!", 3)
+	end)
+
+	-- Update buff timers
+	RunService.RenderStepped:Connect(function(_dt)
+		self:_updateBuffTimers()
 	end)
 end
 
