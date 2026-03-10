@@ -59,6 +59,9 @@ function ArenaService:BuildArena()
 	floor.BottomSurface = Enum.SurfaceType.Smooth
 	floor.Parent = ArenaFolder
 
+	-- Concentric rings and radial lines for a sci-fi floor
+	self:_spawnFloorRings()
+
 	-- Ground veins (glowing magenta Neon cracks)
 	self:_spawnGroundVeins()
 
@@ -70,6 +73,84 @@ function ArenaService:BuildArena()
 
 	-- Lighting
 	self:_setupLighting()
+end
+
+function ArenaService:_spawnFloorRings()
+	local cfg = GameConfig.Arena
+	local ringFolder = Instance.new("Folder")
+	ringFolder.Name = "FloorRings"
+	ringFolder.Parent = ArenaFolder
+
+	-- Concentric neon rings at various radii
+	local ringRadii = { 15, 30, 50, 70, 90 }
+	for _, radius in ringRadii do
+		local segments = math.max(24, math.floor(radius * 1.2))
+		local circumference = 2 * math.pi * radius
+		local segWidth = circumference / segments + 0.2
+
+		for i = 1, segments do
+			local angle = (i / segments) * math.pi * 2
+			local x = math.cos(angle) * radius
+			local z = math.sin(angle) * radius
+
+			local seg = Instance.new("Part")
+			seg.Name = "Ring"
+			seg.Size = Vector3.new(segWidth, 0.08, 0.15)
+			seg.Color = cfg.VeinColor
+			seg.Material = Enum.Material.Neon
+			seg.Transparency = 0.5
+			seg.Anchored = true
+			seg.CanCollide = false
+			seg.CastShadow = false
+			seg.CFrame = CFrame.lookAt(Vector3.new(x, 0.08, z), Vector3.zero) * CFrame.Angles(0, math.rad(90), 0)
+			seg.Parent = ringFolder
+		end
+	end
+
+	-- Radial lines from center outward (8 lines, like compass directions)
+	for i = 1, 8 do
+		local angle = (i / 8) * math.pi * 2
+		local length = cfg.Radius - 12
+		local midDist = length / 2 + 5
+		local x = math.cos(angle) * midDist
+		local z = math.sin(angle) * midDist
+
+		local line = Instance.new("Part")
+		line.Name = "RadialLine"
+		line.Size = Vector3.new(length, 0.08, 0.12)
+		line.Color = cfg.VeinColor
+		line.Material = Enum.Material.Neon
+		line.Transparency = 0.65
+		line.Anchored = true
+		line.CanCollide = false
+		line.CastShadow = false
+		line.CFrame = CFrame.lookAt(Vector3.new(x, 0.07, z), Vector3.zero) * CFrame.Angles(0, math.rad(90), 0)
+		line.Parent = ringFolder
+	end
+
+	-- Center rune circle (bright inner ring)
+	local innerSegments = 16
+	local innerRadius = 5
+	local innerCircumference = 2 * math.pi * innerRadius
+	local innerSegWidth = innerCircumference / innerSegments + 0.3
+
+	for i = 1, innerSegments do
+		local angle = (i / innerSegments) * math.pi * 2
+		local x = math.cos(angle) * innerRadius
+		local z = math.sin(angle) * innerRadius
+
+		local seg = Instance.new("Part")
+		seg.Name = "InnerRing"
+		seg.Size = Vector3.new(innerSegWidth, 0.1, 0.25)
+		seg.Color = cfg.VeinColor
+		seg.Material = Enum.Material.Neon
+		seg.Transparency = 0.3
+		seg.Anchored = true
+		seg.CanCollide = false
+		seg.CastShadow = false
+		seg.CFrame = CFrame.lookAt(Vector3.new(x, 0.09, z), Vector3.zero) * CFrame.Angles(0, math.rad(90), 0)
+		seg.Parent = ringFolder
+	end
 end
 
 function ArenaService:_spawnGroundVeins()
@@ -289,6 +370,16 @@ function ArenaService:TransitionToStage(stageIndex: number)
 		for _, vein in veinFolder:GetChildren() do
 			if vein:IsA("BasePart") then
 				vein.Color = stage.VeinColor
+			end
+		end
+	end
+
+	-- Update floor rings
+	local ringFolder = ArenaFolder and ArenaFolder:FindFirstChild("FloorRings")
+	if ringFolder then
+		for _, part in ringFolder:GetChildren() do
+			if part:IsA("BasePart") then
+				part.Color = stage.VeinColor
 			end
 		end
 	end

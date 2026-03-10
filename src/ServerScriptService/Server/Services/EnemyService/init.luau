@@ -833,7 +833,7 @@ end
 -------------------------------------------------
 
 local function buildSwarmlingModel(cfg: any, position: Vector3, model: Model): BasePart
-	-- Tiny neon orb
+	-- Small neon orb with trail
 	local body = Instance.new("Part")
 	body.Name = "Body"
 	body.Shape = Enum.PartType.Ball
@@ -842,8 +842,35 @@ local function buildSwarmlingModel(cfg: any, position: Vector3, model: Model): B
 	body.Material = Enum.Material.Neon
 	body.Position = position
 	body.Anchored = false
-	body.CanCollide = true
+	body.CanCollide = false
+	body.CastShadow = false
 	body.Parent = model
+
+	-- Trail for visibility while moving
+	local att0 = Instance.new("Attachment")
+	att0.Position = Vector3.new(0, 0, -cfg.Size.Z * 0.3)
+	att0.Parent = body
+	local att1 = Instance.new("Attachment")
+	att1.Position = Vector3.new(0, 0, cfg.Size.Z * 0.3)
+	att1.Parent = body
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = att0
+	trail.Attachment1 = att1
+	trail.Lifetime = 0.2
+	trail.MinLength = 0.1
+	trail.Color = ColorSequence.new(cfg.CoreColor)
+	trail.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 1) })
+	trail.WidthScale = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0) })
+	trail.LightEmission = 0.5
+	trail.Parent = body
+
+	-- Point light for glow
+	local light = Instance.new("PointLight")
+	light.Color = cfg.CoreColor
+	light.Brightness = 0.8
+	light.Range = 4
+	light.Shadows = false
+	light.Parent = body
 
 	addVoidSmoke(body, cfg.CoreColor, 3)
 

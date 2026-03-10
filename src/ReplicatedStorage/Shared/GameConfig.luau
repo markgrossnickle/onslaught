@@ -12,7 +12,7 @@ GameConfig.Arena = {
 	FloorSize = Vector3.new(210, 2, 210), -- slightly larger than circle for floor part
 	FloorPosition = Vector3.new(0, -1, 0),
 	FloorColor = Color3.fromRGB(55, 35, 75),
-	FloorMaterial = Enum.Material.Slate,
+	FloorMaterial = Enum.Material.Basalt,
 
 	-- Void boundary wall
 	BoundaryHeight = 15,
@@ -52,7 +52,7 @@ GameConfig.Stages = {
 		{
 			Name = "VoidWasteland",
 			FloorColor = Color3.fromRGB(55, 35, 75),
-			FloorMaterial = Enum.Material.Slate,
+			FloorMaterial = Enum.Material.Basalt,
 			VeinColor = Color3.fromRGB(180, 60, 220),
 			CrystalColor = Color3.fromRGB(35, 20, 55),
 			CrystalCoreColor = Color3.fromRGB(140, 40, 180),
@@ -67,7 +67,7 @@ GameConfig.Stages = {
 		{
 			Name = "CrimsonHollow",
 			FloorColor = Color3.fromRGB(70, 30, 35),
-			FloorMaterial = Enum.Material.Slate,
+			FloorMaterial = Enum.Material.CrackedLava,
 			VeinColor = Color3.fromRGB(220, 50, 40),
 			CrystalColor = Color3.fromRGB(55, 20, 20),
 			CrystalCoreColor = Color3.fromRGB(220, 40, 30),
@@ -107,7 +107,7 @@ GameConfig.Stages = {
 		{
 			Name = "EldritchNexus",
 			FloorColor = Color3.fromRGB(30, 45, 30),
-			FloorMaterial = Enum.Material.Slate,
+			FloorMaterial = Enum.Material.Basalt,
 			VeinColor = Color3.fromRGB(40, 220, 80),
 			CrystalColor = Color3.fromRGB(20, 40, 20),
 			CrystalCoreColor = Color3.fromRGB(40, 200, 60),
@@ -410,7 +410,7 @@ GameConfig.Enemies = {
 			Damage = 3,
 			AttackRange = 3,
 			AttackCooldown = 0.5,
-			Size = Vector3.new(0.8, 0.8, 0.8),
+			Size = Vector3.new(1.8, 1.8, 1.8),
 			XPValue = 2,
 			BodyColor = Color3.fromRGB(60, 30, 80),
 			CoreColor = Color3.fromRGB(255, 100, 255),
