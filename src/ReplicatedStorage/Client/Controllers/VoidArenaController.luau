@@ -56,11 +56,16 @@ function VoidArenaController:_updatePhase(phase: number)
 	-- Tween fog
 	TweenService:Create(Lighting, TweenInfo.new(5), { FogEnd = fogEnd }):Play()
 
-	-- Darken ambient in later phases
-	if phase >= 3 then
+	-- Dim ambient slightly in later phases (still visible)
+	if phase == 3 then
 		TweenService:Create(Lighting, TweenInfo.new(3), {
-			Ambient = Color3.fromRGB(12, 5, 18),
-			OutdoorAmbient = Color3.fromRGB(8, 4, 12),
+			Ambient = Color3.fromRGB(55, 35, 70),
+			OutdoorAmbient = Color3.fromRGB(45, 30, 60),
+		}):Play()
+	elseif phase >= 4 then
+		TweenService:Create(Lighting, TweenInfo.new(3), {
+			Ambient = Color3.fromRGB(40, 25, 55),
+			OutdoorAmbient = Color3.fromRGB(35, 22, 48),
 		}):Play()
 	end
 
@@ -265,7 +270,7 @@ function VoidArenaController:_onStageChanged(stageName: string, _stageIndex: num
 			TweenService:Create(Lighting, TweenInfo.new(3), {
 				FogColor = stage.FogColor,
 				Ambient = stage.Ambient,
-				OutdoorAmbient = stage.Ambient,
+				OutdoorAmbient = stage.OutdoorAmbient or stage.Ambient,
 			}):Play()
 
 			local cc = Lighting:FindFirstChild("VoidColorCorrection") :: ColorCorrectionEffect?
@@ -293,8 +298,8 @@ function VoidArenaController:KnitStart()
 			_currentPhase = 1
 			_gameElapsed = 0
 			Lighting.FogEnd = GameConfig.Arena.FogEndPhase1
-			Lighting.Ambient = Color3.fromRGB(20, 10, 30)
-			Lighting.OutdoorAmbient = Color3.fromRGB(15, 8, 20)
+			Lighting.Ambient = Color3.fromRGB(80, 50, 100)
+			Lighting.OutdoorAmbient = Color3.fromRGB(60, 40, 80)
 
 			-- Remove floor/crystal particles
 			local arenaFolder = workspace:FindFirstChild("Arena")

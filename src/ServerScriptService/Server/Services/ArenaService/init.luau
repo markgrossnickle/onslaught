@@ -227,14 +227,14 @@ end
 
 function ArenaService:_setupLighting()
 	local lighting = game:GetService("Lighting")
-	lighting.Ambient = Color3.fromRGB(20, 10, 30)
-	lighting.OutdoorAmbient = Color3.fromRGB(15, 8, 20)
-	lighting.Brightness = 0.5
-	lighting.ClockTime = 0
+	lighting.Ambient = Color3.fromRGB(80, 50, 100)
+	lighting.OutdoorAmbient = Color3.fromRGB(60, 40, 80)
+	lighting.Brightness = 1.5
+	lighting.ClockTime = 6
 	lighting.FogEnd = GameConfig.Arena.FogEndPhase1
-	lighting.FogColor = Color3.fromRGB(10, 5, 15)
-	lighting.EnvironmentDiffuseScale = 0
-	lighting.EnvironmentSpecularScale = 0
+	lighting.FogColor = Color3.fromRGB(25, 15, 40)
+	lighting.EnvironmentDiffuseScale = 0.3
+	lighting.EnvironmentSpecularScale = 0.1
 
 	-- Purple color correction
 	local existing = lighting:FindFirstChild("VoidColorCorrection")
@@ -247,7 +247,7 @@ function ArenaService:_setupLighting()
 	cc.TintColor = Color3.fromRGB(220, 190, 255)
 	cc.Saturation = -0.1
 	cc.Contrast = 0.1
-	cc.Brightness = -0.05
+	cc.Brightness = 0.05
 	cc.Parent = lighting
 end
 
@@ -328,7 +328,7 @@ function ArenaService:TransitionToStage(stageIndex: number)
 	local lighting = game:GetService("Lighting")
 	lighting.FogColor = stage.FogColor
 	lighting.Ambient = stage.Ambient
-	lighting.OutdoorAmbient = stage.Ambient
+	lighting.OutdoorAmbient = stage.OutdoorAmbient or stage.Ambient
 
 	local cc = lighting:FindFirstChild("VoidColorCorrection") :: ColorCorrectionEffect?
 	if cc then

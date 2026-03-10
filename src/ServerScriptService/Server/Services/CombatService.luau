@@ -661,7 +661,7 @@ function CombatService:_updateOrbiters(dt: number)
 				+ Vector3.new(math.cos(angle) * orbCfg.OrbitRadius, 0, math.sin(angle) * orbCfg.OrbitRadius)
 			orb.Position = orbPos
 
-			local enemies = EnemyService:GetEnemiesInRadius(orbPos, orbCfg.SphereSize)
+			local enemies = EnemyService:GetEnemiesInRadius(orbPos, orbCfg.HitRadius)
 			for _, enemy in enemies do
 				if not enemy.Alive then
 					continue
@@ -1772,14 +1772,64 @@ function CombatService:KnitInit()
 	Players.PlayerAdded:Connect(function(player: Player)
 		self:_initWeaponState(player)
 
-		player.CharacterAdded:Connect(function(_character)
+		player.CharacterAdded:Connect(function(character)
 			self:_rebuildOrbiters(player)
 			local ws = _weaponStates[player]
 			if ws and ws.HasAura then
 				self:_rebuildAura(player)
 			end
+
+			-- Add glow light so the player character is always visible
+			local root = character:WaitForChild("HumanoidRootPart", 5)
+			if root then
+				local light = Instance.new("PointLight")
+				light.Name = "PlayerGlow"
+				light.Color = Color3.fromRGB(140, 120, 200)
+				light.Brightness = 1.5
+				light.Range = 25
+				light.Shadows = false
+				light.Parent = root
+			end
 		end)
 	end)
+
+	-- Handle players who joined before KnitInit
+	for _, player in Players:GetPlayers() do
+		if not _weaponStates[player] then
+			self:_initWeaponState(player)
+			player.CharacterAdded:Connect(function(character)
+				self:_rebuildOrbiters(player)
+				local ws2 = _weaponStates[player]
+				if ws2 and ws2.HasAura then
+					self:_rebuildAura(player)
+				end
+
+				local root = character:WaitForChild("HumanoidRootPart", 5)
+				if root then
+					local light = Instance.new("PointLight")
+					light.Name = "PlayerGlow"
+					light.Color = Color3.fromRGB(140, 120, 200)
+					light.Brightness = 1.5
+					light.Range = 25
+					light.Shadows = false
+					light.Parent = root
+				end
+			end)
+			if player.Character then
+				self:_rebuildOrbiters(player)
+				local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+				if hrp and not hrp:FindFirstChild("PlayerGlow") then
+					local light = Instance.new("PointLight")
+					light.Name = "PlayerGlow"
+					light.Color = Color3.fromRGB(140, 120, 200)
+					light.Brightness = 1.5
+					light.Range = 25
+					light.Shadows = false
+					light.Parent = hrp
+				end
+			end
+		end
+	end
 
 	Players.PlayerRemoving:Connect(function(player: Player)
 		local parts = _orbiterParts[player]
